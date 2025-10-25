@@ -98,81 +98,87 @@ function ProfileContent() {
   }, [wallet])
 
   const fetchProfileData = async () => {
-    console.log("[v0] Starting fetchProfileData for wallet:", wallet)
-    const supabase = createClient()
+    try {
+      const supabase = createClient()
 
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("*")
-      .or(`wallet_address.eq.${wallet},sui_wallet_address.eq.${wallet}`)
-      .single()
-
-    console.log("[v0] User data fetch result:", { userData, userError })
-
-    if (userError || !userData) {
-      console.error("[v0] User not found or error:", userError)
-      notFound()
-      return
-    }
-
-    setUser(userData)
-
-    const userWallet = userData.sui_wallet_address || userData.wallet_address
-
-    const { data: awardsData, error: awardsError } = await supabase
-      .from("awards")
-      .select(`
-        *,
-        challenges(id, name, description),
-        organizers(org_name, wallet_address),
-        organizer_inventory(
-          id,
-          store_items(id, name, description, rank, image_url, artist_name)
-        )
-      `)
-      .eq("recipient_wallet", userWallet)
-      .order("awarded_at", { ascending: false })
-
-    console.log("[v0] Awards data:", { awardsData, awardsError })
-    setAwards(awardsData || [])
-
-    const { data: influencersData } = await supabase
-      .from("influences")
-      .select("*, influencer:users!influences_influencer_wallet_fkey(*)")
-      .eq("influenced_wallet", userWallet)
-      .eq("status", "approved")
-
-    setInfluencers(influencersData || [])
-
-    const { data: influencedData } = await supabase
-      .from("influences")
-      .select("*, influenced:users!influences_influenced_wallet_fkey(*)")
-      .eq("influencer_wallet", userWallet)
-      .eq("status", "approved")
-
-    setInfluenced(influencedData || [])
-
-    const { count } = await supabase
-      .from("profile_likes")
-      .select("*", { count: "exact", head: true })
-      .eq("liked_wallet", userWallet)
-
-    setLikes(count || 0)
-
-    if (currentUser) {
-      const currentUserWallet = currentUser.sui_wallet_address || currentUser.wallet_address
-      const { data: likeData } = await supabase
-        .from("profile_likes")
+      const { data: userData, error: userError } = await supabase
+        .from("users")
         .select("*")
-        .eq("liker_wallet", currentUserWallet)
-        .eq("liked_wallet", userWallet)
+        .or(`wallet_address.eq.${wallet},sui_wallet_address.eq.${wallet}`)
         .single()
 
-      setHasLiked(!!likeData)
-    }
+      console.log("[v0] User data fetch result:", { userData, userError })
 
-    console.log("[v0] Profile data fetch complete, setting isLoading to false")
-    setIsLoading(false)
+      if (userError || !userData) {
+        console.error("[v0] User not found or error:", userError)
+        notFound()
+        return
+      }
+
+      setUser(userData)
+
+      const userWallet = userData.sui_wallet_address || userData.wallet_address
+
+      const { data: awardsData, error: awardsError } = await supabase
+        .from("awards")
+        .select(`
+          *,
+          challenges(id, name, description),
+          organizers(org_name, wallet_address),
+          organizer_inventory(
+            id,
+            store_items(id, name, description, rank, image_url, artist_name)
+          )
+        `)
+        .eq("recipient_wallet", userWallet)
+        .order("awarded_at", { ascending: false })
+
+      console.log("[v0] Awards data:", { awardsData, awardsError })
+      if (awardsError) {
+        console.error("[v0] Awards fetch error:", awardsError)
+      }
+      setAwards(awardsData || [])
+
+      const { data: influencersData } = await supabase
+        .from("influences")
+        .select("*, influencer:users!influences_influencer_wallet_fkey(*)")
+        .eq("influenced_wallet", userWallet)
+        .eq("status", "approved")
+
+      setInfluencers(influencersData || [])
+
+      const { data: influencedData } = await supabase
+        .from("influences")
+        .select("*, influenced:users!influences_influenced_wallet_fkey(*)")
+        .eq("influencer_wallet", userWallet)
+        .eq("status", "approved")
+
+      setInfluenced(influencedData || [])
+
+      const { count } = await supabase
+        .from("profile_likes")
+        .select("*", { count: "exact", head: true })
+        .eq("liked_wallet", userWallet)
+
+      setLikes(count || 0)
+
+      if (currentUser) {
+        const currentUserWallet = currentUser.sui_wallet_address || currentUser.wallet_address
+        const { data: likeData } = await supabase
+          .from("profile_likes")
+          .select("*")
+          .eq("liker_wallet", currentUserWallet)
+          .eq("liked_wallet", userWallet)
+          .single()
+
+        setHasLiked(!!likeData)
+      }
+    } catch (error) {
+      console.error("[v0] Error in fetchProfileData:", error)
+    } finally {
+      console.log("[v0] Profile data fetch complete, setting isLoading to false")
+      setIsLoading(false)
+    }
   }
 
   const handleLike = async () => {

@@ -24,11 +24,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased ${_inter.className}`}>
-        <ThemeProvider defaultTheme="light">
-          <AuthProvider>
-            <WalletProviders>{children}</WalletProviders>
-          </AuthProvider>
-        </ThemeProvider>
+        <WalletProviders>
+          <ThemeProvider defaultTheme="light">
+            <AuthProvider>{children}</AuthProvider>
+          </ThemeProvider>
+        </WalletProviders>
         <Analytics />
       </body>
     </html>
