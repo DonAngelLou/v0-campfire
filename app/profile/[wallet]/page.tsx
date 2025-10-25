@@ -11,7 +11,7 @@ import { AwardIcon, HeartIcon, BuildingIcon, UserPlusIcon, ExternalLinkIcon } fr
 import { createClient } from "@/lib/supabase"
 import { ProtectedRoute } from "@/components/protected-route"
 import { AppHeader } from "@/components/app-header"
-import { useAuth } from "@/lib/auth-context"
+import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { TagInfluencerDialog } from "@/components/tag-influencer-dialog"
 import { PendingInfluences } from "@/components/pending-influences"
 import { generateUserId } from "@/lib/utils"
@@ -20,6 +20,7 @@ import { SelectOrganizationDialog } from "@/components/select-organization-dialo
 
 interface User {
   wallet_address: string
+  sui_wallet_address: string | null
   display_name: string
   bio: string | null
   avatar_url: string | null
@@ -73,7 +74,7 @@ export default function ProfilePage() {
 function ProfileContent() {
   const params = useParams()
   const wallet = params?.wallet as string
-  const { user: currentUser } = useAuth()
+  const { user: currentUser } = useWalletAuth()
   const [user, setUser] = useState<User | null>(null)
   const [awards, setAwards] = useState<AwardData[]>([])
   const [influencers, setInfluencers] = useState<Influence[]>([])
@@ -91,28 +92,34 @@ function ProfileContent() {
 
   useEffect(() => {
     if (wallet) {
+      console.log("[v0] Fetching profile data for wallet:", wallet)
       fetchProfileData()
     }
   }, [wallet])
 
   const fetchProfileData = async () => {
+    console.log("[v0] Starting fetchProfileData for wallet:", wallet)
     const supabase = createClient()
 
-    // Fetch user data
     const { data: userData, error: userError } = await supabase
       .from("users")
       .select("*")
-      .eq("wallet_address", wallet)
+      .or(`wallet_address.eq.${wallet},sui_wallet_address.eq.${wallet}`)
       .single()
 
+    console.log("[v0] User data fetch result:", { userData, userError })
+
     if (userError || !userData) {
+      console.error("[v0] User not found or error:", userError)
       notFound()
       return
     }
 
     setUser(userData)
 
-    const { data: awardsData } = await supabase
+    const userWallet = userData.sui_wallet_address || userData.wallet_address
+
+    const { data: awardsData, error: awardsError } = await supabase
       .from("awards")
       .select(`
         *,
@@ -123,72 +130,68 @@ function ProfileContent() {
           store_items(id, name, description, rank, image_url, artist_name)
         )
       `)
-      .eq("recipient_wallet", wallet)
+      .eq("recipient_wallet", userWallet)
       .order("awarded_at", { ascending: false })
 
+    console.log("[v0] Awards data:", { awardsData, awardsError })
     setAwards(awardsData || [])
 
-    // Fetch influencers (approved only)
     const { data: influencersData } = await supabase
       .from("influences")
       .select("*, influencer:users!influences_influencer_wallet_fkey(*)")
-      .eq("influenced_wallet", wallet)
+      .eq("influenced_wallet", userWallet)
       .eq("status", "approved")
 
     setInfluencers(influencersData || [])
 
-    // Fetch influenced (approved only)
     const { data: influencedData } = await supabase
       .from("influences")
       .select("*, influenced:users!influences_influenced_wallet_fkey(*)")
-      .eq("influencer_wallet", wallet)
+      .eq("influencer_wallet", userWallet)
       .eq("status", "approved")
 
     setInfluenced(influencedData || [])
 
-    // Fetch profile likes count
     const { count } = await supabase
       .from("profile_likes")
       .select("*", { count: "exact", head: true })
-      .eq("liked_wallet", wallet)
+      .eq("liked_wallet", userWallet)
 
     setLikes(count || 0)
 
-    // Check if current user has liked this profile
     if (currentUser) {
+      const currentUserWallet = currentUser.sui_wallet_address || currentUser.wallet_address
       const { data: likeData } = await supabase
         .from("profile_likes")
         .select("*")
-        .eq("liker_wallet", currentUser.wallet_address)
-        .eq("liked_wallet", wallet)
+        .eq("liker_wallet", currentUserWallet)
+        .eq("liked_wallet", userWallet)
         .single()
 
       setHasLiked(!!likeData)
     }
 
+    console.log("[v0] Profile data fetch complete, setting isLoading to false")
     setIsLoading(false)
   }
 
   const handleLike = async () => {
-    if (!currentUser || wallet === currentUser.wallet_address) return
+    const currentUserWallet = currentUser?.sui_wallet_address || currentUser?.wallet_address
+    const userWallet = user?.sui_wallet_address || user?.wallet_address
+
+    if (!currentUser || !currentUserWallet || wallet === currentUserWallet) return
 
     const supabase = createClient()
 
     if (hasLiked) {
-      // Unlike
-      await supabase
-        .from("profile_likes")
-        .delete()
-        .eq("liker_wallet", currentUser.wallet_address)
-        .eq("liked_wallet", wallet)
+      await supabase.from("profile_likes").delete().eq("liker_wallet", currentUserWallet).eq("liked_wallet", userWallet)
 
       setLikes(likes - 1)
       setHasLiked(false)
     } else {
-      // Like
       await supabase.from("profile_likes").insert({
-        liker_wallet: currentUser.wallet_address,
-        liked_wallet: wallet,
+        liker_wallet: currentUserWallet,
+        liked_wallet: userWallet,
       })
 
       setLikes(likes + 1)
@@ -202,6 +205,7 @@ function ProfileContent() {
   }
 
   if (isLoading) {
+    console.log("[v0] Rendering loading state")
     return (
       <div className="min-h-screen bg-background">
         <AppHeader />
@@ -212,9 +216,16 @@ function ProfileContent() {
     )
   }
 
-  if (!user) return null
+  if (!user) {
+    console.log("[v0] No user found, returning null")
+    return null
+  }
 
-  const isOwnProfile = currentUser?.wallet_address === wallet
+  console.log("[v0] Rendering profile for user:", user.display_name)
+
+  const currentUserWallet = currentUser?.sui_wallet_address || currentUser?.wallet_address
+  const userWallet = user.sui_wallet_address || user.wallet_address
+  const isOwnProfile = currentUserWallet === userWallet
   const isOrganizer = user.role === "organizer"
 
   const highestRankBadge = awards.reduce((highest, award) => {
@@ -354,7 +365,6 @@ function ProfileContent() {
                         highestRankBadge.organizer_inventory?.store_items?.image_url ||
                         `/placeholder.svg?height=150&width=150&query=badge` ||
                         "/placeholder.svg" ||
-                        "/placeholder.svg" ||
                         "/placeholder.svg"
                       }
                       alt={highestRankBadge.organizer_inventory?.store_items?.name || "Badge"}
@@ -414,7 +424,6 @@ function ProfileContent() {
                       src={
                         award.organizer_inventory?.store_items?.image_url ||
                         `/placeholder.svg?height=300&width=300&query=badge` ||
-                        "/placeholder.svg" ||
                         "/placeholder.svg" ||
                         "/placeholder.svg"
                       }
