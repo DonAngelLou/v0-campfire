@@ -5,7 +5,7 @@ import type React from "react"
 import { useCurrentAccount, useConnectWallet, useDisconnectWallet, useWallets } from "@mysten/dapp-kit"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { useRouter } from "next/navigation"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -27,7 +27,6 @@ export function WalletConnect() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState("")
-  const hasRedirected = useRef(false)
 
   useEffect(() => {
     console.log("[v0] Wallet state:", {
@@ -38,11 +37,11 @@ export function WalletConnect() {
   }, [currentAccount, wallets, user])
 
   useEffect(() => {
-    if (user && currentAccount && !hasRedirected.current) {
-      hasRedirected.current = true
+    if (user && currentAccount) {
+      console.log("[v0] User authenticated, redirecting to profile")
       router.push(`/profile/${currentAccount.address}`)
     }
-  }, [user, currentAccount])
+  }, [user, currentAccount, router])
 
   useEffect(() => {
     if (currentAccount && !user && !isLoading) {
@@ -91,13 +90,10 @@ export function WalletConnect() {
           }
         } catch (uploadError) {
           console.warn("[v0] Avatar upload error, continuing without avatar:", uploadError)
-          // Continue with account creation even if avatar upload fails
         }
       }
 
       await createUser(displayName, bio, avatarUrl || undefined)
-      hasRedirected.current = true
-      router.push(`/profile/${currentAccount.address}`)
     } catch (err) {
       console.error("Account creation error:", err)
       setError("Failed to create account. Please try again.")
