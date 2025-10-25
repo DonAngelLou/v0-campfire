@@ -1,0 +1,211 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Package, Sparkles } from "lucide-react"
+import { createClient } from "@/lib/supabase"
+import { useAuth } from "@/lib/auth-context"
+import { NftDetailDialog } from "./nft-detail-dialog"
+
+interface StoreItem {
+  id: number
+  name: string
+  description: string
+  rank: number
+  rank_name: string
+  price: number
+  image_url: string
+  artist_name: string | null
+  artist_description: string | null
+  is_customizable: boolean
+}
+
+interface InventoryItem {
+  id: number
+  organizer_wallet: string
+  store_item_id: number
+  custom_name: string | null
+  custom_description: string | null
+  purchased_at: string
+  awarded: boolean
+  awarded_to: string | null
+  awarded_at: string | null
+  challenge_id: number | null
+  store_items: StoreItem
+}
+
+const RANK_INFO = {
+  5: { name: "Initiate", color: "#A0AEC0" },
+  4: { name: "Adept", color: "#4299E1" },
+  3: { name: "Vanguard", color: "#38A169" },
+  2: { name: "Luminary", color: "#D69E2E" },
+  1: { name: "Paragon", color: "#805AD5" },
+}
+
+export function InventoryDialog({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [selectedRank, setSelectedRank] = useState<string>("all")
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    if (open && user) {
+      fetchInventory()
+    }
+  }, [open, user])
+
+  const fetchInventory = async () => {
+    if (!user) return
+
+    setIsLoading(true)
+    const supabase = createClient()
+
+    const { data, error } = await supabase
+      .from("organizer_inventory")
+      .select(`
+        *,
+        store_items(*)
+      `)
+      .eq("organizer_wallet", user.wallet_address)
+      .order("purchased_at", { ascending: false })
+
+    if (data) {
+      setInventory(data as InventoryItem[])
+    }
+
+    setIsLoading(false)
+  }
+
+  const filterByRank = (items: InventoryItem[]) => {
+    if (selectedRank === "all") return items
+    return items.filter((item) => item.store_items.rank === Number.parseInt(selectedRank))
+  }
+
+  const availableItems = filterByRank(inventory.filter((item) => !item.awarded))
+  const awardedItems = filterByRank(inventory.filter((item) => item.awarded))
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5" />
+            NFT Inventory
+          </DialogTitle>
+          <DialogDescription>View and manage your purchased NFT badges</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Rank Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Filter by rank:</span>
+            <Select value={selectedRank} onValueChange={setSelectedRank}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="All Ranks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Ranks</SelectItem>
+                <SelectItem value="5">Initiate</SelectItem>
+                <SelectItem value="4">Adept</SelectItem>
+                <SelectItem value="3">Vanguard</SelectItem>
+                <SelectItem value="2">Luminary</SelectItem>
+                <SelectItem value="1">Paragon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Tabs */}
+          <Tabs defaultValue="available" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="available">Available ({availableItems.length})</TabsTrigger>
+              <TabsTrigger value="awarded">Awarded ({awardedItems.length})</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="available" className="mt-4">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : availableItems.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {availableItems.map((item) => (
+                    <NftCard key={item.id} item={item} onUpdate={fetchInventory} />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No available NFTs in inventory</p>
+                  <p className="text-sm text-muted-foreground mt-2">Visit the store to purchase NFT badges</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="awarded" className="mt-4">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : awardedItems.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {awardedItems.map((item) => (
+                    <NftCard key={item.id} item={item} onUpdate={fetchInventory} />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No awarded NFTs yet</p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function NftCard({ item, onUpdate }: { item: InventoryItem; onUpdate: () => void }) {
+  const rankInfo = RANK_INFO[item.store_items.rank as keyof typeof RANK_INFO]
+  const displayName = item.custom_name || item.store_items.name
+
+  return (
+    <NftDetailDialog item={item} onUpdate={onUpdate}>
+      <div className="group cursor-pointer border rounded-lg overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg">
+        <div className="aspect-square relative overflow-hidden bg-muted">
+          <img
+            src={item.store_items.image_url || "/placeholder.svg"}
+            alt={displayName}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+          />
+          {item.store_items.rank === 1 && (
+            <div className="absolute top-2 right-2">
+              <Sparkles className="w-5 h-5 text-yellow-400 animate-pulse" />
+            </div>
+          )}
+        </div>
+        <div className="p-3 space-y-2">
+          <h3 className="font-semibold text-sm line-clamp-1">{displayName}</h3>
+          <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-xs">
+            {rankInfo.name}
+          </Badge>
+        </div>
+      </div>
+    </NftDetailDialog>
+  )
+}
