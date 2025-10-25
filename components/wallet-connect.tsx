@@ -5,7 +5,7 @@ import type React from "react"
 import { useCurrentAccount, useConnectWallet, useDisconnectWallet, useWallets } from "@mysten/dapp-kit"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -27,6 +27,7 @@ export function WalletConnect() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState("")
+  const hasRedirected = useRef(false)
 
   useEffect(() => {
     console.log("[v0] Wallet state:", {
@@ -37,15 +38,14 @@ export function WalletConnect() {
   }, [currentAccount, wallets, user])
 
   useEffect(() => {
-    if (user && currentAccount) {
-      console.log("[v0] User exists, redirecting to profile")
+    if (user && currentAccount && !hasRedirected.current) {
+      hasRedirected.current = true
       router.push(`/profile/${currentAccount.address}`)
     }
-  }, [user, currentAccount, router])
+  }, [user, currentAccount])
 
   useEffect(() => {
     if (currentAccount && !user && !isLoading) {
-      console.log("[v0] New wallet connected, showing account creation")
       setShowCreateAccount(true)
     }
   }, [currentAccount, user, isLoading])
@@ -89,6 +89,7 @@ export function WalletConnect() {
       }
 
       await createUser(displayName, bio, avatarUrl || undefined)
+      hasRedirected.current = true
       router.push(`/profile/${currentAccount.address}`)
     } catch (err) {
       console.error("Account creation error:", err)
@@ -106,7 +107,6 @@ export function WalletConnect() {
       return
     }
 
-    // Connect to the first available wallet
     const firstWallet = wallets[0]
     console.log("[v0] Connecting to wallet:", firstWallet.name)
     connect(
@@ -162,7 +162,6 @@ export function WalletConnect() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleCreateAccount} className="space-y-4">
-            {/* Avatar Upload */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Profile Picture (Optional)</label>
               <div className="flex items-center gap-4">
@@ -189,7 +188,6 @@ export function WalletConnect() {
               </div>
             </div>
 
-            {/* Display Name */}
             <div className="space-y-2">
               <label htmlFor="displayName" className="text-sm font-medium">
                 Display Name *
@@ -205,7 +203,6 @@ export function WalletConnect() {
               />
             </div>
 
-            {/* Bio */}
             <div className="space-y-2">
               <label htmlFor="bio" className="text-sm font-medium">
                 Bio (Optional)

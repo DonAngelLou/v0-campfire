@@ -1,7 +1,7 @@
 "use client"
 
 import { useCurrentAccount, useDisconnectWallet, useSignPersonalMessage } from "@mysten/dapp-kit"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { getSupabaseClient } from "@/lib/supabase-client"
 
 interface User {
@@ -23,6 +23,7 @@ export function useWalletAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const hasAttemptedAuth = useRef(false)
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -34,13 +35,14 @@ export function useWalletAuth() {
       }
     }
     checkAuth()
-  }, [currentAccount])
+  }, []) // Empty dependency array - run only once on mount
 
   useEffect(() => {
-    if (currentAccount && !user && !isAuthenticating) {
+    if (currentAccount && !user && !isAuthenticating && !hasAttemptedAuth.current) {
+      hasAttemptedAuth.current = true
       authenticateUser()
     }
-  }, [currentAccount, user])
+  }, [currentAccount]) // Only depend on currentAccount, not user
 
   const fetchUser = async (walletAddress: string) => {
     try {
@@ -115,7 +117,7 @@ export function useWalletAuth() {
       localStorage.setItem("campfire_sui_wallet", walletAddress)
       return data
     } catch (error) {
-      console.error("[v0] Error creating user:", error)
+      console.error("Error creating user:", error)
       throw error
     }
   }
@@ -124,6 +126,7 @@ export function useWalletAuth() {
     disconnect()
     setUser(null)
     localStorage.removeItem("campfire_sui_wallet")
+    hasAttemptedAuth.current = false
   }
 
   return {
