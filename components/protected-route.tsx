@@ -13,12 +13,24 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter()
 
   useEffect(() => {
-    if (!isLoading && !user && !currentAccount) {
+    console.log("[v0] ProtectedRoute state:", {
+      isLoading,
+      hasUser: !!user,
+      hasCurrentAccount: !!currentAccount,
+      userWallet: user?.wallet_address,
+      accountAddress: currentAccount?.address,
+    })
+  }, [isLoading, user, currentAccount])
+
+  useEffect(() => {
+    if (!isLoading && !currentAccount) {
+      console.log("[v0] No wallet connected, redirecting to login")
       router.push("/login")
     }
-  }, [user, isLoading, currentAccount, router])
+  }, [isLoading, currentAccount, router])
 
-  if (isLoading || (currentAccount && !user)) {
+  if (isLoading) {
+    console.log("[v0] Auth still loading...")
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -26,9 +38,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!user && !currentAccount) {
+  if (!currentAccount) {
+    console.log("[v0] No current account, returning null")
     return null
   }
 
+  console.log("[v0] ProtectedRoute rendering children")
   return <>{children}</>
 }

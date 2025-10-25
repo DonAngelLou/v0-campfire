@@ -91,15 +91,25 @@ function ProfileContent() {
   const [selectOrgOpen, setSelectOrgOpen] = useState(false)
 
   useEffect(() => {
+    console.log("[v0] ProfileContent mounted, wallet:", wallet)
+    console.log("[v0] Current user from useWalletAuth:", currentUser)
+
     if (wallet) {
       console.log("[v0] Fetching profile data for wallet:", wallet)
       fetchProfileData()
+    } else {
+      console.log("[v0] No wallet parameter, setting loading to false")
+      setIsLoading(false)
     }
   }, [wallet])
 
   const fetchProfileData = async () => {
+    console.log("[v0] fetchProfileData started")
+    setIsLoading(true)
+
     try {
       const supabase = createClient()
+      console.log("[v0] Supabase client created")
 
       const { data: userData, error: userError } = await supabase
         .from("users")
@@ -111,13 +121,16 @@ function ProfileContent() {
 
       if (userError || !userData) {
         console.error("[v0] User not found or error:", userError)
+        setIsLoading(false)
         notFound()
         return
       }
 
       setUser(userData)
+      console.log("[v0] User set:", userData.display_name)
 
       const userWallet = userData.sui_wallet_address || userData.wallet_address
+      console.log("[v0] Using wallet for queries:", userWallet)
 
       const { data: awardsData, error: awardsError } = await supabase
         .from("awards")
@@ -133,46 +146,52 @@ function ProfileContent() {
         .eq("recipient_wallet", userWallet)
         .order("awarded_at", { ascending: false })
 
-      console.log("[v0] Awards data:", { awardsData, awardsError })
+      console.log("[v0] Awards data:", { count: awardsData?.length, error: awardsError })
       if (awardsError) {
         console.error("[v0] Awards fetch error:", awardsError)
       }
       setAwards(awardsData || [])
 
-      const { data: influencersData } = await supabase
+      const { data: influencersData, error: influencersError } = await supabase
         .from("influences")
         .select("*, influencer:users!influences_influencer_wallet_fkey(*)")
         .eq("influenced_wallet", userWallet)
         .eq("status", "approved")
 
+      console.log("[v0] Influencers data:", { count: influencersData?.length, error: influencersError })
       setInfluencers(influencersData || [])
 
-      const { data: influencedData } = await supabase
+      const { data: influencedData, error: influencedError } = await supabase
         .from("influences")
         .select("*, influenced:users!influences_influenced_wallet_fkey(*)")
         .eq("influencer_wallet", userWallet)
         .eq("status", "approved")
 
+      console.log("[v0] Influenced data:", { count: influencedData?.length, error: influencedError })
       setInfluenced(influencedData || [])
 
-      const { count } = await supabase
+      const { count, error: likesError } = await supabase
         .from("profile_likes")
         .select("*", { count: "exact", head: true })
         .eq("liked_wallet", userWallet)
 
+      console.log("[v0] Likes count:", { count, error: likesError })
       setLikes(count || 0)
 
       if (currentUser) {
         const currentUserWallet = currentUser.sui_wallet_address || currentUser.wallet_address
-        const { data: likeData } = await supabase
+        const { data: likeData, error: likeError } = await supabase
           .from("profile_likes")
           .select("*")
           .eq("liker_wallet", currentUserWallet)
           .eq("liked_wallet", userWallet)
           .single()
 
+        console.log("[v0] Has liked:", { hasLiked: !!likeData, error: likeError })
         setHasLiked(!!likeData)
       }
+
+      console.log("[v0] All data fetched successfully")
     } catch (error) {
       console.error("[v0] Error in fetchProfileData:", error)
     } finally {
@@ -223,7 +242,7 @@ function ProfileContent() {
   }
 
   if (!user) {
-    console.log("[v0] No user found, returning null")
+    console.log("[v0] No user found after loading, returning null")
     return null
   }
 
@@ -371,6 +390,7 @@ function ProfileContent() {
                         highestRankBadge.organizer_inventory?.store_items?.image_url ||
                         `/placeholder.svg?height=150&width=150&query=badge` ||
                         "/placeholder.svg" ||
+                        "/placeholder.svg" ||
                         "/placeholder.svg"
                       }
                       alt={highestRankBadge.organizer_inventory?.store_items?.name || "Badge"}
@@ -430,6 +450,7 @@ function ProfileContent() {
                       src={
                         award.organizer_inventory?.store_items?.image_url ||
                         `/placeholder.svg?height=300&width=300&query=badge` ||
+                        "/placeholder.svg" ||
                         "/placeholder.svg" ||
                         "/placeholder.svg"
                       }
