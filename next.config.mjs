@@ -7,9 +7,18 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.public.blob.vercel-storage.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'blob.v0.app',
+      },
+    ],
   },
-  output: 'standalone',
+  // Vercel automatically handles the build output
 }
 
 export default nextConfig
