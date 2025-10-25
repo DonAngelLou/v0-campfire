@@ -73,19 +73,26 @@ export function WalletConnect() {
       let avatarUrl: string | null = null
 
       if (avatarFile) {
-        const formData = new FormData()
-        formData.append("file", avatarFile)
-        formData.append("walletAddress", currentAccount.address)
+        try {
+          const formData = new FormData()
+          formData.append("file", avatarFile)
+          formData.append("walletAddress", currentAccount.address)
 
-        const response = await fetch("/api/upload-avatar", {
-          method: "POST",
-          body: formData,
-        })
+          const response = await fetch("/api/upload-avatar", {
+            method: "POST",
+            body: formData,
+          })
 
-        if (!response.ok) throw new Error("Avatar upload failed")
-
-        const data = await response.json()
-        avatarUrl = data.url
+          if (response.ok) {
+            const data = await response.json()
+            avatarUrl = data.url
+          } else {
+            console.warn("[v0] Avatar upload failed, continuing without avatar")
+          }
+        } catch (uploadError) {
+          console.warn("[v0] Avatar upload error, continuing without avatar:", uploadError)
+          // Continue with account creation even if avatar upload fails
+        }
       }
 
       await createUser(displayName, bio, avatarUrl || undefined)
