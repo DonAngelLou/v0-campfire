@@ -4,9 +4,7 @@ import Link from "next/link"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { ThemeToggle } from "./theme-toggle"
 import { Button } from "./ui/button"
-import { LogOut, User, Trophy, LayoutDashboard, Users, ShoppingBag } from "lucide-react"
-import { CreateOrganizationDialog } from "./create-organization-dialog"
-import { Building2 } from "lucide-react"
+import { LogOut, User, Trophy, Users, Building2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 export function AppHeader() {
@@ -14,11 +12,16 @@ export function AppHeader() {
   const router = useRouter()
 
   const userWallet = user?.sui_wallet_address || user?.wallet_address
-  const isOrganizer = user?.role === "organizer"
 
   const handleLogout = () => {
     logout()
     router.push("/login")
+  }
+
+  const handleOrganizationClick = () => {
+    if (userWallet) {
+      window.open(`/organizer/${userWallet}`, "_blank")
+    }
   }
 
   return (
@@ -55,22 +58,10 @@ export function AppHeader() {
                   Challenges
                 </Button>
               </Link>
-              {isOrganizer && (
-                <>
-                  <Link href="/store">
-                    <Button variant="ghost" size="sm" className="gap-2">
-                      <ShoppingBag className="w-4 h-4" />
-                      Store
-                    </Button>
-                  </Link>
-                  <Link href="/dashboard">
-                    <Button variant="ghost" size="sm" className="gap-2">
-                      <LayoutDashboard className="w-4 h-4" />
-                      Dashboard
-                    </Button>
-                  </Link>
-                </>
-              )}
+              <Button variant="ghost" size="sm" className="gap-2" onClick={handleOrganizationClick}>
+                <Building2 className="w-4 h-4" />
+                Organization
+              </Button>
             </nav>
           )}
         </div>
@@ -78,12 +69,6 @@ export function AppHeader() {
         <div className="flex items-center gap-2">
           {user && (
             <>
-              <CreateOrganizationDialog>
-                <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                  <Building2 className="w-4 h-4" />
-                  <span className="hidden sm:inline">Create Organization</span>
-                </Button>
-              </CreateOrganizationDialog>
               <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
                 <LogOut className="w-4 h-4" />
                 Logout

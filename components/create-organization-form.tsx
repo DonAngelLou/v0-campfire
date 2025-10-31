@@ -5,32 +5,19 @@ import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { createClient } from "@/lib/supabase"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { Building2, CreditCard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
-interface CreateOrganizationDialogProps {
-  children: React.ReactNode
-  onSuccess?: () => void
-}
-
-export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganizationDialogProps) {
+export function CreateOrganizationForm() {
   const { user } = useWalletAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [step, setStep] = useState<"form" | "payment">("form")
   const [formData, setFormData] = useState({
@@ -123,17 +110,8 @@ export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganiza
         description: `${formData.orgName} has been successfully created.`,
       })
 
-      setOpen(false)
-      setStep("form")
-      setFormData({ orgName: "", orgDescription: "" })
-
-      setTimeout(() => {
-        if (onSuccess) {
-          onSuccess()
-        }
-        router.push("/dashboard")
-        router.refresh()
-      }, 500)
+      // Refresh the page to show the organization dashboard
+      router.refresh()
     } catch (error: any) {
       console.error("[v0] Error creating organization:", error)
       toast({
@@ -147,81 +125,82 @@ export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganiza
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Building2 className="w-5 h-5" />
-            {step === "form" ? "Create Organization" : "Payment"}
-          </DialogTitle>
-          <DialogDescription>
+    <div className="container mx-auto px-4 py-8 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-2xl">
+            <Building2 className="w-6 h-6" />
+            {step === "form" ? "Create Your Organization" : "Payment"}
+          </CardTitle>
+          <CardDescription>
             {step === "form"
               ? "Create your own organization to award badges and manage challenges."
               : "Complete payment to create your organization."}
-          </DialogDescription>
-        </DialogHeader>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {step === "form" ? (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="orgName">Organization Name *</Label>
+                <Input
+                  id="orgName"
+                  value={formData.orgName}
+                  onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
+                  placeholder="Enter organization name"
+                  required
+                />
+              </div>
 
-        {step === "form" ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="orgName">Organization Name *</Label>
-              <Input
-                id="orgName"
-                value={formData.orgName}
-                onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
-                placeholder="Enter organization name"
-                required
-              />
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="orgDescription">Description *</Label>
+                <Textarea
+                  id="orgDescription"
+                  value={formData.orgDescription}
+                  onChange={(e) => setFormData({ ...formData, orgDescription: e.target.value })}
+                  placeholder="Describe your organization"
+                  rows={4}
+                  required
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="orgDescription">Description *</Label>
-              <Textarea
-                id="orgDescription"
-                value={formData.orgDescription}
-                onChange={(e) => setFormData({ ...formData, orgDescription: e.target.value })}
-                placeholder="Describe your organization"
-                rows={4}
-                required
-              />
-            </div>
+              <div className="bg-muted p-6 rounded-lg">
+                <p className="text-sm text-muted-foreground mb-2">Creation Fee:</p>
+                <p className="text-3xl font-bold">₱2,500.00</p>
+              </div>
 
-            <div className="bg-muted p-4 rounded-lg">
-              <p className="text-sm text-muted-foreground mb-2">Creation Fee:</p>
-              <p className="text-2xl font-bold">₱2,500.00</p>
-            </div>
-
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              Continue to Payment
-            </Button>
-          </form>
-        ) : (
-          <div className="space-y-4">
-            <div className="bg-muted p-6 rounded-lg text-center">
-              <CreditCard className="w-12 h-12 mx-auto mb-4 text-primary" />
-              <p className="text-lg font-semibold mb-2">Payment Amount</p>
-              <p className="text-3xl font-bold mb-4">₱2,500.00</p>
-              <p className="text-sm text-muted-foreground">This is a simulated payment. Click confirm to proceed.</p>
-            </div>
-
-            <div className="space-y-2">
-              <Button onClick={handlePayment} disabled={isLoading} className="w-full">
-                {isLoading ? "Processing..." : "Confirm Payment"}
+              <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                Continue to Payment
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setStep("form")}
-                disabled={isLoading}
-                className="w-full"
-              >
-                Back
-              </Button>
+            </form>
+          ) : (
+            <div className="space-y-6">
+              <div className="bg-muted p-8 rounded-lg text-center">
+                <CreditCard className="w-16 h-16 mx-auto mb-4 text-primary" />
+                <p className="text-lg font-semibold mb-2">Payment Amount</p>
+                <p className="text-4xl font-bold mb-4">₱2,500.00</p>
+                <p className="text-sm text-muted-foreground">This is a simulated payment. Click confirm to proceed.</p>
+              </div>
+
+              <div className="space-y-3">
+                <Button onClick={handlePayment} disabled={isLoading} className="w-full" size="lg">
+                  {isLoading ? "Processing..." : "Confirm Payment"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setStep("form")}
+                  disabled={isLoading}
+                  className="w-full"
+                  size="lg"
+                >
+                  Back
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }

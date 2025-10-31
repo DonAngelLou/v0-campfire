@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Trophy, Users, AwardIcon, Plus, Clock, CheckCircle2, Package } from "lucide-react"
+import { Trophy, Users, AwardIcon, Plus, Clock, CheckCircle2, Package, Building2 } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { ProtectedRoute } from "@/components/protected-route"
 import { AppHeader } from "@/components/app-header"
-import { useAuth } from "@/lib/auth-context"
+import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { CreateChallengeDialog } from "@/components/create-challenge-dialog"
 import { InventoryDialog } from "@/components/inventory-dialog"
 import { ManageMembersDialog } from "@/components/manage-members-dialog"
@@ -58,7 +58,7 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const { user } = useAuth()
+  const { user } = useWalletAuth()
   const router = useRouter()
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [applications, setApplications] = useState<Application[]>([])
@@ -67,17 +67,58 @@ function DashboardContent() {
   const [selectedOrg, setSelectedOrg] = useState<string>("")
   const [organizer, setOrganizer] = useState<Organizer | null>(null)
   const [userOrgRole, setUserOrgRole] = useState<string>("")
+  const [userOrganizations, setUserOrganizations] = useState<string[]>([])
 
   useEffect(() => {
-    if (user && user.role === "organizer" && !selectedOrg) {
-      setSelectedOrg(user.wallet_address)
+    if (user) {
+      checkUserOrganizations()
     }
   }, [user])
+
+  const checkUserOrganizations = async () => {
+    if (!user) return
+
+    const supabase = createClient()
+
+    // Check if user is an organizer
+    const { data: orgData } = await supabase
+      .from("organizers")
+      .select("wallet_address")
+      .eq("wallet_address", user.wallet_address)
+      .single()
+
+    // Check if user is a member of any organizations
+    const { data: memberData } = await supabase
+      .from("organization_members")
+      .select("organization_wallet")
+      .eq("user_wallet", user.wallet_address)
+      .eq("status", "active")
+
+    const orgs: string[] = []
+
+    if (orgData) {
+      orgs.push(orgData.wallet_address)
+    }
+
+    if (memberData && memberData.length > 0) {
+      orgs.push(...memberData.map((m) => m.organization_wallet))
+    }
+
+    setUserOrganizations(orgs)
+
+    // Set default selected org
+    if (orgs.length > 0 && !selectedOrg) {
+      setSelectedOrg(orgs[0])
+    } else if (orgs.length === 0) {
+      // User has no organizations, redirect to profile
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!user) return
 
-    if (user.role !== "organizer") {
+    if (userOrganizations.length === 0 && !isLoading) {
       router.push(`/profile/${user.wallet_address}`)
       return
     }
@@ -85,7 +126,7 @@ function DashboardContent() {
     if (selectedOrg) {
       fetchDashboardData()
     }
-  }, [user, selectedOrg])
+  }, [user, selectedOrg, userOrganizations])
 
   const fetchDashboardData = async () => {
     if (!user || !selectedOrg) return
@@ -94,6 +135,8 @@ function DashboardContent() {
     const supabase = createClient()
 
     try {
+      console.log("[v0] Fetching dashboard data for org:", selectedOrg)
+
       const { data: memberData } = await supabase
         .from("organization_members")
         .select("role")
@@ -107,6 +150,9 @@ function DashboardContent() {
         supabase.from("organizers").select("*").eq("wallet_address", selectedOrg).single(),
         supabase.from("challenges").select("*").eq("created_by", selectedOrg).order("created_at", { ascending: false }),
       ])
+
+      console.log("[v0] Org data:", orgResult.data)
+      console.log("[v0] Challenges:", challengesResult.data)
 
       setOrganizer(orgResult.data)
       setChallenges(challengesResult.data || [])
@@ -135,6 +181,8 @@ function DashboardContent() {
         setApplications([])
         setAwards(0)
       }
+
+      console.log("[v0] Dashboard data loaded successfully")
     } catch (error) {
       console.error("[v0] Error fetching dashboard data:", error)
     } finally {
@@ -153,7 +201,21 @@ function DashboardContent() {
     )
   }
 
-  if (!user || user.role !== "organizer") return null
+  if (!user || userOrganizations.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <AppHeader />
+        <div className="container mx-auto px-4 py-16 text-center">
+          <Building2 className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+          <h2 className="text-2xl font-bold mb-2">No Organizations Found</h2>
+          <p className="text-muted-foreground mb-6">
+            You need to create or be a member of an organization to access the dashboard.
+          </p>
+          <Button onClick={() => router.push(`/profile/${user?.wallet_address}`)}>Go to Profile</Button>
+        </div>
+      </div>
+    )
+  }
 
   const pendingApplications = applications.filter((a) => a.status === "pending")
   const openChallenges = challenges.filter((c) => c.status === "open")
