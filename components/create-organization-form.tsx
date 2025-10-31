@@ -25,8 +25,18 @@ export function CreateOrganizationForm() {
     orgDescription: "",
   })
 
+  const checkOrgNameUnique = async (name: string): Promise<boolean> => {
+    const supabase = createClient()
+    const { data, error } = await supabase.from("organizers").select("org_name").ilike("org_name", name).single()
+
+    return !data // Returns true if no organization with this name exists
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (isLoading) return
+
     if (!user) {
       toast({
         title: "Authentication Required",
@@ -45,26 +55,37 @@ export function CreateOrganizationForm() {
       return
     }
 
+    setIsLoading(true)
+    const isUnique = await checkOrgNameUnique(formData.orgName.trim())
+    setIsLoading(false)
+
+    if (!isUnique) {
+      toast({
+        title: "Name Already Taken",
+        description: "An organization with this name already exists. Please choose a different name.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setStep("payment")
   }
 
   const handlePayment = async () => {
     if (!user) return
 
+    if (isLoading) return
+
     setIsLoading(true)
 
     try {
       const supabase = createClient()
-
-      console.log("[v0] Starting organization creation for user:", user.wallet_address)
 
       // Simulate payment processing
       await new Promise((resolve) => setTimeout(resolve, 2000))
 
       // Generate unique wallet address for organization
       const orgWallet = `org_${Date.now()}_${Math.random().toString(36).substring(7)}`
-
-      console.log("[v0] Creating organization with wallet:", orgWallet)
 
       const { error: userError } = await supabase.from("users").insert({
         wallet_address: orgWallet,
@@ -73,10 +94,7 @@ export function CreateOrganizationForm() {
         role: "organizer",
       })
 
-      if (userError) {
-        console.error("[v0] Error creating user record:", userError)
-        throw userError
-      }
+      if (userError) throw userError
 
       const { error: orgError } = await supabase.from("organizers").insert({
         wallet_address: orgWallet,
@@ -85,10 +103,7 @@ export function CreateOrganizationForm() {
         verified: false,
       })
 
-      if (orgError) {
-        console.error("[v0] Error creating organizer record:", orgError)
-        throw orgError
-      }
+      if (orgError) throw orgError
 
       const { error: memberError } = await supabase.from("organization_members").insert({
         organization_wallet: orgWallet,
@@ -98,20 +113,17 @@ export function CreateOrganizationForm() {
         accepted_at: new Date().toISOString(),
       })
 
-      if (memberError) {
-        console.error("[v0] Error adding member:", memberError)
-        throw memberError
-      }
-
-      console.log("[v0] Organization created successfully")
+      if (memberError) throw memberError
 
       toast({
         title: "Organization Created!",
-        description: `${formData.orgName} has been successfully created.`,
+        description: `${formData.orgName} has been successfully created. Redirecting to dashboard...`,
       })
 
-      // Refresh the page to show the organization dashboard
-      router.refresh()
+      // Wait 2 seconds to show the success message, then refresh
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
     } catch (error: any) {
       console.error("[v0] Error creating organization:", error)
       toast({
@@ -119,7 +131,6 @@ export function CreateOrganizationForm() {
         description: error.message || "Failed to create organization",
         variant: "destructive",
       })
-    } finally {
       setIsLoading(false)
     }
   }
@@ -149,6 +160,7 @@ export function CreateOrganizationForm() {
                   onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
                   placeholder="Enter organization name"
                   required
+                  disabled={isLoading}
                 />
               </div>
 
@@ -161,6 +173,7 @@ export function CreateOrganizationForm() {
                   placeholder="Describe your organization"
                   rows={4}
                   required
+                  disabled={isLoading}
                 />
               </div>
 
@@ -170,7 +183,7 @@ export function CreateOrganizationForm() {
               </div>
 
               <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                Continue to Payment
+                {isLoading ? "Checking availability..." : "Continue to Payment"}
               </Button>
             </form>
           ) : (
