@@ -1,22 +1,25 @@
 "use client"
 
 import Link from "next/link"
-import { useAuth } from "@/lib/auth-context"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { ThemeToggle } from "./theme-toggle"
 import { Button } from "./ui/button"
 import { LogOut, User, Trophy, LayoutDashboard, Users, ShoppingBag } from "lucide-react"
 import { CreateOrganizationDialog } from "./create-organization-dialog"
 import { Building2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 export function AppHeader() {
-  const { user } = useWalletAuth()
-  const { logout } = useAuth()
-
-  console.log("[v0] AppHeader - user:", user)
+  const { user, logout } = useWalletAuth()
+  const router = useRouter()
 
   const userWallet = user?.sui_wallet_address || user?.wallet_address
   const isOrganizer = user?.role === "organizer"
+
+  const handleLogout = () => {
+    logout()
+    router.push("/login")
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -81,7 +84,7 @@ export function AppHeader() {
                   <span className="hidden sm:inline">Create Organization</span>
                 </Button>
               </CreateOrganizationDialog>
-              <Button variant="ghost" size="sm" onClick={logout} className="gap-2">
+              <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
                 <LogOut className="w-4 h-4" />
                 Logout
               </Button>
