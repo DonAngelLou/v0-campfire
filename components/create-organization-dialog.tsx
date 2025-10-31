@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { createClient } from "@/lib/supabase"
-import { useAuth } from "@/lib/auth-context"
+import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { Building2, CreditCard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -27,7 +27,7 @@ interface CreateOrganizationDialogProps {
 }
 
 export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganizationDialogProps) {
-  const { user } = useAuth()
+  const { user } = useWalletAuth()
   const router = useRouter()
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
@@ -40,12 +40,30 @@ export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganiza
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user) return
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please connect your wallet to create an organization.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.orgName.trim() || !formData.orgDescription.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      return
+    }
 
     setStep("payment")
   }
 
   const handlePayment = async () => {
+    if (!user) return
+
     setIsLoading(true)
 
     try {
@@ -159,7 +177,7 @@ export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganiza
               <p className="text-2xl font-bold">₱2,500.00</p>
             </div>
 
-            <Button type="submit" className="w-full">
+            <Button type="submit" className="w-full" disabled={isLoading}>
               Continue to Payment
             </Button>
           </form>
