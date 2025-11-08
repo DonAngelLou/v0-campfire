@@ -20,6 +20,7 @@ import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/lib/auth-context"
 import { NftDetailDialog } from "./nft-detail-dialog"
 import { MintNftDialog } from "./mint-nft-dialog"
+import type { BlockchainToken } from "@/types/blockchain"
 
 interface StoreItem {
   id: number
@@ -49,6 +50,7 @@ interface InventoryItem {
   custom_image_url: string | null
   quantity: number
   awarded_count: number
+  blockchain_tokens?: BlockchainToken[] | null
   store_items: StoreItem | null
 }
 
@@ -66,6 +68,20 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [selectedRank, setSelectedRank] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(true)
+
+  const getAvailableTokenCount = (item: InventoryItem) => {
+    if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+      return item.blockchain_tokens.filter((token) => token.status === "available").length
+    }
+    return Math.max((item.quantity || 0) - (item.awarded_count || 0), 0)
+  }
+
+  const getAwardedTokenCount = (item: InventoryItem) => {
+    if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+      return item.blockchain_tokens.filter((token) => token.status === "awarded").length
+    }
+    return item.awarded_count || 0
+  }
 
   useEffect(() => {
     if (open && user) {
@@ -100,22 +116,10 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
     return items.filter((item) => !item.is_custom_minted && item.store_items?.rank === Number.parseInt(selectedRank))
   }
 
-  const availableItems = filterByRank(
-    inventory.filter((item) => {
-      if (item.is_custom_minted) {
-        return item.awarded_count < item.quantity
-      }
-      return !item.awarded
-    }),
-  )
+  const availableItems = filterByRank(inventory.filter((item) => getAvailableTokenCount(item) > 0))
 
   const awardedItems = filterByRank(
-    inventory.filter((item) => {
-      if (item.is_custom_minted) {
-        return item.awarded_count >= item.quantity
-      }
-      return item.awarded
-    }),
+    inventory.filter((item) => getAvailableTokenCount(item) === 0 && getAwardedTokenCount(item) > 0),
   )
 
   return (
@@ -248,7 +252,7 @@ function NftCard({ item, onUpdate }: { item: InventoryItem; onUpdate: () => void
               </Badge>
             ) : (
               <Badge variant="secondary" className="text-xs">
-                Qty: {item.quantity - item.awarded_count}/{item.quantity}
+                Qty: {getAvailableTokenCount(item)}/{item.quantity || getAvailableTokenCount(item)}
               </Badge>
             )}
           </div>

@@ -17,6 +17,10 @@ import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { Award } from "lucide-react"
+import { useCurrentAccount } from "@mysten/dapp-kit"
+import { useBlockchainTransaction, buildTransferBadgeTransaction } from "@/lib/sui-blockchain"
+import { useToast } from "@/hooks/use-toast"
+import type { BlockchainToken } from "@/types/blockchain"
 
 interface QuickAwardBadgeDialogProps {
   open: boolean
@@ -44,6 +48,7 @@ interface InventoryItem {
   awarded_count: number
   is_custom_minted: boolean
   custom_image_url: string | null
+  blockchain_tokens?: BlockchainToken[] | null
 }
 
 export function QuickAwardBadgeDialog({
@@ -55,6 +60,9 @@ export function QuickAwardBadgeDialog({
   onSuccess,
 }: QuickAwardBadgeDialogProps) {
   const { user } = useWalletAuth()
+  const currentAccount = useCurrentAccount()
+  const { executeTransaction } = useBlockchainTransaction()
+  const { toast } = useToast()
   const [challenges, setChallenges] = useState<EventChallenge[]>([])
   const [selectedChallenge, setSelectedChallenge] = useState("")
   const [selectedBadge, setSelectedBadge] = useState("")
@@ -68,6 +76,16 @@ export function QuickAwardBadgeDialog({
       fetchInventory()
     }
   }, [open, eventId, user])
+
+  const getAvailableTokenCount = (item: InventoryItem) => {
+    if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+      return item.blockchain_tokens.filter((token) => token.status === "available").length
+    }
+    if (typeof item.quantity === "number") {
+      return Math.max(item.quantity - (item.awarded_count || 0), 0)
+    }
+    return 0
+  }
 
   const fetchChallenges = async () => {
     const supabase = createClient()
@@ -97,6 +115,7 @@ export function QuickAwardBadgeDialog({
         is_custom_minted,
         quantity,
         awarded_count,
+        blockchain_tokens,
         store_items(name, image_url, rank)
       `)
       .eq("organizer_wallet", userWallet)
@@ -111,10 +130,11 @@ export function QuickAwardBadgeDialog({
         awarded_count: item.awarded_count,
         is_custom_minted: item.is_custom_minted || false,
         custom_image_url: item.custom_image_url,
+        blockchain_tokens: item.blockchain_tokens || [],
       }))
       .filter((item: InventoryItem) => {
-        // Show if not quantity-tracked (old system) or has available quantity
-        return !item.quantity || item.quantity - item.awarded_count > 0
+        const available = getAvailableTokenCount(item)
+        return available > 0
       })
 
     setInventory(formattedInventory)
@@ -123,39 +143,88 @@ export function QuickAwardBadgeDialog({
   const handleSubmit = async () => {
     if (!selectedChallenge || !selectedBadge || !user) return
 
-    setIsLoading(true)
-
-    const supabase = createClient()
-    const awarderWallet = user.sui_wallet_address || user.wallet_address
-
-    // Insert award
-    const { error: awardError } = await supabase.from("awards").insert({
-      challenge_id: Number.parseInt(selectedChallenge),
-      recipient_wallet: userId,
-      awarded_by: awarderWallet,
-      inventory_id: selectedBadge,
-      notes: notes || null,
-      event_id: eventId,
-    })
-
-    if (!awardError) {
-      // Update inventory count
-      const selectedItem = inventory.find((i) => i.id === selectedBadge)
-      if (selectedItem && selectedItem.quantity) {
-        await supabase
-          .from("organizer_inventory")
-          .update({ awarded_count: selectedItem.awarded_count + 1 })
-          .eq("id", selectedBadge)
-      }
+    if (!currentAccount) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your SUI wallet to award badges.",
+        variant: "destructive",
+      })
+      return
     }
 
-    setIsLoading(false)
+    const selectedItem = inventory.find((i) => i.id === selectedBadge)
+    if (!selectedItem) {
+      toast({
+        title: "Inventory Error",
+        description: "Unable to find the selected badge in your inventory.",
+        variant: "destructive",
+      })
+      return
+    }
 
-    if (!awardError) {
+    const availableToken = (selectedItem.blockchain_tokens || []).find((token) => token.status === "available")
+    if (!availableToken) {
+      toast({
+        title: "No NFTs Available",
+        description: "All on-chain badges from this batch have been awarded.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLoading(true)
+
+    try {
+      const tx = buildTransferBadgeTransaction({
+        badgeObjectId: availableToken.objectId,
+        newOwnerAddress: userId,
+        salePrice: 0,
+      })
+
+      const { digest, success } = await executeTransaction(tx)
+      if (!success) {
+        throw new Error("Blockchain transaction failed")
+      }
+
+
+      const awardResponse = await fetch("/api/blockchain/award", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryId: selectedBadge,
+          recipientWallet: userId,
+          awardedBy: user.wallet_address,
+          challengeId: Number.parseInt(selectedChallenge),
+          transactionHash: digest,
+          blockchainObjectId: availableToken.objectId,
+          eventId,
+          notes: notes || null,
+        }),
+      })
+
+      if (!awardResponse.ok) {
+        const error = await awardResponse.json()
+        throw new Error(error.error || "Failed to save award")
+      }
+
+      toast({
+        title: "Badge Awarded",
+        description: `${userName} received the badge on-chain.`,
+      })
+
       setSelectedChallenge("")
       setSelectedBadge("")
       setNotes("")
       onSuccess()
+    } catch (error: any) {
+      console.error("[v0] Quick award error:", error)
+      toast({
+        title: "Award Failed",
+        description: error.message || "Unable to award badge on-chain.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -228,9 +297,9 @@ export function QuickAwardBadgeDialog({
                           Rank {item.rank}
                         </Badge>
                       )}
-                      {item.quantity && (
+                      {getAvailableTokenCount(item) > 0 && (
                         <Badge variant="outline" className="text-xs">
-                          {item.quantity - item.awarded_count} left
+                          {getAvailableTokenCount(item)} left
                         </Badge>
                       )}
                     </div>

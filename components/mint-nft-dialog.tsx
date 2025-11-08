@@ -15,23 +15,41 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Sparkles, Upload, X } from "lucide-react"
-import { createClient } from "@/lib/supabase"
+import { Sparkles, Upload, X, ExternalLink } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { useToast } from "@/hooks/use-toast"
 import Image from "next/image"
+import { useCurrentAccount } from "@mysten/dapp-kit"
+import {
+  buildMintPaidTransaction,
+  useBlockchainTransaction,
+  validateBlockchainConfig,
+  getExplorerUrl,
+  isCampfireBadgeObject,
+  SUI_DECIMALS,
+} from "@/lib/sui-blockchain"
 
 interface MintNftDialogProps {
   children: React.ReactNode
   onMintSuccess: () => void
 }
 
+const DEFAULT_MINT_PRICE_MIST = Number(process.env.NEXT_PUBLIC_MINT_PRICE_MIST ?? "0") || 0
+const formatMistToSui = (mist: number) =>
+  (mist / SUI_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 4 })
+const DEFAULT_RANK_LABEL = "Custom"
+
+const MAX_IMAGE_SIZE_MB = 5
+
 export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+  const currentAccount = useCurrentAccount()
+  const { executeTransaction } = useBlockchainTransaction()
   const [open, setOpen] = useState(false)
   const [isMinting, setIsMinting] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [transactionHash, setTransactionHash] = useState<string | null>(null)
 
   // Form state
   const [nftName, setNftName] = useState("")
@@ -39,10 +57,23 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
   const [quantity, setQuantity] = useState("1")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const parsedQuantity = Number.parseInt(quantity)
+  const quantityNumber = Number.isNaN(parsedQuantity) ? 0 : parsedQuantity
+  const displayQuantity = Math.max(quantityNumber || 1, 1)
+  const estimatedTotalCostMist = DEFAULT_MINT_PRICE_MIST * displayQuantity
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+        toast({
+          title: "Image Too Large",
+          description: `Please pick an image smaller than ${MAX_IMAGE_SIZE_MB}MB.`,
+          variant: "destructive",
+        })
+        e.target.value = ""
+        return
+      }
       setImageFile(file)
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -58,10 +89,29 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
   }
 
   const handleMint = async () => {
+    if (!currentAccount) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your SUI wallet to mint NFTs.",
+        variant: "destructive",
+      })
+      return
+    }
+
     if (!user || !imageFile || !nftName || !quantity) {
       toast({
         title: "Missing Information",
         description: "Please provide an image, name, and quantity for your NFT.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const configValidation = validateBlockchainConfig()
+    if (!configValidation.valid) {
+      toast({
+        title: "Configuration Error",
+        description: configValidation.error || "Blockchain configuration is incomplete.",
         variant: "destructive",
       })
       return
@@ -78,6 +128,7 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
     }
 
     setIsMinting(true)
+    setTransactionHash(null)
 
     try {
       // Step 1: Upload image to Vercel Blob
@@ -99,28 +150,63 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
       const { url: imageUrl } = await uploadResponse.json()
       setIsUploading(false)
 
-      // Step 2: Simulate minting process (blockchain simulation)
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-
-      // Step 3: Add to inventory
-      const supabase = createClient()
-      const { error: mintError } = await supabase.from("organizer_inventory").insert({
-        organizer_wallet: user.wallet_address,
-        store_item_id: null,
-        is_custom_minted: true,
-        custom_name: nftName,
-        custom_description: nftDescription || null,
-        custom_image_url: imageUrl,
+      console.log("[v0] Building mint transaction...")
+      const issuerAddress = currentAccount.address
+      const tx = buildMintPaidTransaction({
+        name: nftName,
+        description: nftDescription || `Custom NFT: ${nftName}`,
+        imageUrl,
+        metadataUri: imageUrl,
+        rank: DEFAULT_RANK_LABEL,
         quantity: quantityNum,
-        awarded_count: 0,
-        mint_cost: 0, // Will be determined by smart contract in future
+        recipientAddress: currentAccount.address,
+        issuerAddress,
+        expectedPrice: DEFAULT_MINT_PRICE_MIST,
       })
 
-      if (mintError) throw mintError
+      console.log("[v0] Executing blockchain transaction...")
+      const { digest, success, objectChanges } = await executeTransaction(tx)
+
+      if (!success) {
+        throw new Error("Blockchain transaction failed")
+      }
+
+      const mintedObjects = objectChanges.filter(isCampfireBadgeObject)
+      if (mintedObjects.length < quantityNum) {
+        throw new Error("Unable to confirm minted NFT object ids from blockchain response.")
+      }
+
+      const mintedTokens = mintedObjects.slice(0, quantityNum).map((obj) => ({
+        objectId: obj.objectId,
+        mintedTransactionHash: digest,
+      }))
+
+      setTransactionHash(digest)
+      console.log("[v0] Transaction successful:", digest)
+
+      const saveResponse = await fetch("/api/blockchain/mint-paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizerWallet: user.wallet_address,
+          transactionHash: digest,
+          nftName,
+          nftDescription: nftDescription || null,
+          imageUrl,
+          quantity: quantityNum,
+          mintCost: DEFAULT_MINT_PRICE_MIST * quantityNum,
+          mintedTokens,
+        }),
+      })
+
+      if (!saveResponse.ok) {
+        const error = await saveResponse.json()
+        throw new Error(error.error || "Failed to save to database")
+      }
 
       toast({
         title: "NFT Minted Successfully!",
-        description: `${quantityNum} NFT${quantityNum > 1 ? "s" : ""} have been added to your inventory.`,
+        description: `${quantityNum} NFT${quantityNum > 1 ? "s" : ""} minted on SUI blockchain.`,
       })
 
       // Reset form
@@ -129,10 +215,13 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
       setQuantity("1")
       setImageFile(null)
       setImagePreview(null)
-      setOpen(false)
 
-      // Refresh inventory
-      onMintSuccess()
+      // Wait a moment to show transaction hash before closing
+      setTimeout(() => {
+        setOpen(false)
+        setTransactionHash(null)
+        onMintSuccess()
+      }, 3000)
     } catch (error) {
       console.error("[v0] Minting error:", error)
       toast({
@@ -153,11 +242,10 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            Mint Custom NFT
+            Mint Custom NFT on SUI
           </DialogTitle>
           <DialogDescription>
-            Create your own custom NFT badge to award as tickets or rewards. This is a simulation preparing for future
-            blockchain integration.
+            Create your own custom NFT badge on the SUI blockchain to award as tickets or rewards.
           </DialogDescription>
         </DialogHeader>
 
@@ -234,14 +322,36 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
             <p className="text-xs text-muted-foreground">How many copies of this NFT do you want to mint?</p>
           </div>
 
-          {/* Info Box */}
           <div className="bg-muted p-4 rounded-lg space-y-2">
-            <p className="text-sm font-medium">Minting Simulation</p>
+            <p className="text-sm font-medium">SUI Blockchain Minting</p>
             <p className="text-xs text-muted-foreground">
-              This is a simulated minting process. In the future, this will interact with the SUI blockchain smart
-              contract to mint actual NFTs. The cost will be determined by the smart contract.
+              This will create a real NFT on the SUI blockchain. You'll need to approve the transaction in your wallet.
+              Gas fees will apply.
             </p>
+            {DEFAULT_MINT_PRICE_MIST > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Estimated cost: {formatMistToSui(estimatedTotalCostMist)} SUI ({displayQuantity} x{" "}
+                {formatMistToSui(DEFAULT_MINT_PRICE_MIST)} SUI)
+              </p>
+            )}
           </div>
+
+          {transactionHash && (
+            <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 p-4 rounded-lg space-y-2">
+              <p className="text-sm font-medium text-green-900 dark:text-green-100">Blockchain Transaction Confirmed</p>
+              <a
+                href={getExplorerUrl(
+                  transactionHash,
+                  (process.env.NEXT_PUBLIC_SUI_NETWORK as "mainnet" | "testnet") || "testnet",
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-green-700 dark:text-green-300 hover:underline flex items-center gap-1"
+              >
+                View on Explorer <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex gap-3">
@@ -257,7 +367,7 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
               {isMinting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  {isUploading ? "Uploading..." : "Minting..."}
+                  {isUploading ? "Uploading..." : "Minting on Blockchain..."}
                 </>
               ) : (
                 <>

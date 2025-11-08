@@ -281,7 +281,7 @@ function EventsContent() {
                     {event.ticket_enabled && (
                       <Badge variant="outline" className="gap-1">
                         <Ticket className="w-3 h-3" />
-                        {event.ticket_price > 0 ? `$${event.ticket_price}` : "Free"}
+                        {event.ticket_price > 0 ? `${event.ticket_price} SUI` : "Free"}
                       </Badge>
                     )}
                   </div>

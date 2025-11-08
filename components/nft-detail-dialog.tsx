@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Sparkles, Calendar, DollarSign, User, ExternalLink, ArrowLeft } from "lucide-react"
+import { Sparkles, Calendar, Coins, User, ExternalLink, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
 interface StoreItem {
@@ -130,9 +130,9 @@ export function NftDetailDialog({
               <span>{new Date(item.purchased_at).toLocaleDateString()}</span>
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
-              <DollarSign className="w-4 h-4 text-muted-foreground" />
+              <Coins className="w-4 h-4 text-muted-foreground" />
               <span className="text-muted-foreground">Price:</span>
-              <span>${item.store_items.price}</span>
+              <span>{item.store_items.price} SUI</span>
             </div>
           </div>
 
@@ -237,9 +237,9 @@ export function NFTDetailDialog({
               <span>{new Date(nft.purchased_at).toLocaleDateString()}</span>
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
-              <DollarSign className="w-4 h-4 text-muted-foreground" />
+              <Coins className="w-4 h-4 text-muted-foreground" />
               <span className="text-muted-foreground">Price:</span>
-              <span>${nft.store_items.price}</span>
+              <span>{nft.store_items.price} SUI</span>
             </div>
           </div>
 

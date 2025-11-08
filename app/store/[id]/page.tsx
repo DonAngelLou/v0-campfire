@@ -16,6 +16,13 @@ import { AppHeader } from "@/components/app-header"
 import { useAuth } from "@/lib/auth-context"
 import Image from "next/image"
 import { useToast } from "@/hooks/use-toast"
+import { useCurrentAccount } from "@mysten/dapp-kit"
+import {
+  buildMintPaidTransaction,
+  isCampfireBadgeObject,
+  SUI_DECIMALS,
+  useBlockchainTransaction,
+} from "@/lib/sui-blockchain"
 
 interface StoreItem {
   id: string
@@ -41,6 +48,8 @@ export default function StoreItemPage() {
 
 function StoreItemContent() {
   const { user } = useAuth()
+  const currentAccount = useCurrentAccount()
+  const { executeTransaction } = useBlockchainTransaction()
   const router = useRouter()
   const params = useParams()
   const { toast } = useToast()
@@ -71,7 +80,16 @@ function StoreItemContent() {
   const handlePurchase = async () => {
     if (!user || !item) return
 
-    if (item.is_customizable && (!customName || !customDescription)) {
+    if (!currentAccount) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your Slush wallet to complete the purchase.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (item.is_customizable && (!customName.trim() || !customDescription.trim())) {
       toast({
         title: "Missing Information",
         description: "Please provide a custom name and description for this badge.",
@@ -84,11 +102,71 @@ function StoreItemContent() {
 
     try {
       const supabase = createClient()
+      const purchaserDisplayName = user.display_name || user.wallet_address
+      const metadataPayload = {
+        name: item.is_customizable && customName ? customName : item.name,
+        description: item.is_customizable && customDescription ? customDescription : item.description,
+        image: item.image_url,
+        attributes: [
+          { trait_type: "Rank", value: item.rank_name },
+          { trait_type: "Issuer", value: purchaserDisplayName },
+        ],
+      }
 
-      // Simulate payment processing
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      const metadataResponse = await fetch("/api/blockchain/metadata", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          metadata: metadataPayload,
+          organizerWallet: user.wallet_address,
+          storeItemId: item.id,
+        }),
+      })
 
-      // Add to inventory
+      if (!metadataResponse.ok) {
+        const error = await metadataResponse.json().catch(() => null)
+        throw new Error(error?.error || "Failed to prepare metadata for minting.")
+      }
+
+      const { url: metadataUrl } = await metadataResponse.json()
+      const priceMist = Math.round(Number(item.price) * SUI_DECIMALS)
+
+      if (priceMist <= 0) {
+        throw new Error("Invalid price configured for this badge.")
+      }
+
+      const tx = buildMintPaidTransaction({
+        name: metadataPayload.name,
+        description: metadataPayload.description,
+        imageUrl: item.image_url,
+        metadataUri: metadataUrl,
+        rank: item.rank_name,
+        quantity: 1,
+        recipientAddress: currentAccount.address,
+        issuerAddress: currentAccount.address,
+        expectedPrice: priceMist,
+      })
+
+      const { digest, success, objectChanges } = await executeTransaction(tx)
+
+      if (!success) {
+        throw new Error("Blockchain transaction failed.")
+      }
+
+      const mintedObjects = objectChanges.filter(isCampfireBadgeObject)
+      if (mintedObjects.length === 0) {
+        throw new Error("Unable to confirm minted badge on-chain.")
+      }
+
+      const mintedTokens = [
+        {
+          objectId: mintedObjects[0].objectId,
+          status: "available",
+          mintedTransactionHash: digest,
+          mintedAt: new Date().toISOString(),
+        },
+      ]
+
       const { data: inventoryItem, error: inventoryError } = await supabase
         .from("organizer_inventory")
         .insert({
@@ -96,23 +174,30 @@ function StoreItemContent() {
           store_item_id: item.id,
           custom_name: item.is_customizable ? customName : null,
           custom_description: item.is_customizable ? customDescription : null,
+          custom_image_url: item.image_url,
+          quantity: 1,
+          awarded_count: 0,
+          transaction_hash: digest,
+          blockchain_status: "confirmed",
+          mint_cost: priceMist,
+          blockchain_tokens: mintedTokens,
         })
         .select()
         .single()
 
       if (inventoryError) throw inventoryError
 
-      // Add to purchase history
       await supabase.from("purchase_history").insert({
         organizer_wallet: user.wallet_address,
         store_item_id: item.id,
         inventory_id: inventoryItem.id,
         price_paid: item.price,
+        payment_method: "sui",
       })
 
       toast({
         title: "Purchase Successful!",
-        description: "The NFT badge has been added to your inventory.",
+        description: "The NFT badge has been minted to your wallet and added to your inventory.",
       })
 
       router.push("/dashboard?tab=inventory")
@@ -120,7 +205,7 @@ function StoreItemContent() {
       console.error("Purchase error:", error)
       toast({
         title: "Purchase Failed",
-        description: "There was an error processing your purchase. Please try again.",
+        description: error instanceof Error ? error.message : "There was an error processing your purchase.",
         variant: "destructive",
       })
     } finally {
@@ -208,7 +293,7 @@ function StoreItemContent() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div>
-                  <span className="text-4xl font-bold text-primary">${item.price}</span>
+                <span className="text-4xl font-bold text-primary">{item.price} SUI</span>
                 </div>
 
                 {item.artist_name && (
@@ -274,7 +359,7 @@ function StoreItemContent() {
                   ) : (
                     <>
                       <ShoppingCart className="w-5 h-5" />
-                      Purchase for ${item.price}
+                    Purchase for {item.price} SUI
                     </>
                   )}
                 </Button>

@@ -28,7 +28,7 @@ import {
   ShoppingCart,
   Plus,
   Edit,
-  DollarSign,
+  Coins,
   Package,
   BarChart,
   XCircle,
@@ -120,6 +120,8 @@ interface PurchaseHistory {
   organizer_name?: string
   item_name?: string
 }
+
+const MAX_STORE_IMAGE_SIZE_MB = 5
 
 export default function SuperAdminPage() {
   const router = useRouter()
@@ -778,12 +780,12 @@ export default function SuperAdminPage() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />
-                  Total Revenue
+                  <Coins className="w-4 h-4" />
+                  Total Revenue (SUI)
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold">${storeStats.totalRevenue.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{storeStats.totalRevenue.toFixed(2)} SUI</p>
               </CardContent>
             </Card>
 
@@ -791,15 +793,15 @@ export default function SuperAdminPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
                   <BarChart className="w-4 h-4" />
-                  Avg Price
+                  Avg Price (SUI)
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold">
-                  $
-                  {storeStats.totalItems > 0
+                  {storeStats.totalPurchases > 0
                     ? (storeStats.totalRevenue / storeStats.totalPurchases || 0).toFixed(2)
-                    : "0.00"}
+                    : "0.00"}{" "}
+                  SUI
                 </p>
               </CardContent>
             </Card>
@@ -853,7 +855,7 @@ export default function SuperAdminPage() {
                         <TableCell>
                           <Badge style={{ backgroundColor: item.rank_color, color: "white" }}>{item.rank_name}</Badge>
                         </TableCell>
-                        <TableCell className="font-semibold">${item.price}</TableCell>
+                        <TableCell className="font-semibold">{item.price} SUI</TableCell>
                         <TableCell>{item.quantity || "∞"}</TableCell>
                         <TableCell>
                           {item.is_customizable ? (
@@ -917,7 +919,7 @@ export default function SuperAdminPage() {
                           </div>
                         </TableCell>
                         <TableCell>{purchase.item_name || "Unknown Item"}</TableCell>
-                        <TableCell className="font-semibold">${Number(purchase.price_paid).toFixed(2)}</TableCell>
+                        <TableCell className="font-semibold">{Number(purchase.price_paid).toFixed(2)} SUI</TableCell>
                         <TableCell className="text-sm">
                           {new Date(purchase.purchased_at).toLocaleDateString()}
                         </TableCell>
@@ -1107,6 +1109,11 @@ function CreateStoreItemDialog({ onSuccess, rankOptions }: { onSuccess: () => vo
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      if (file.size > MAX_STORE_IMAGE_SIZE_MB * 1024 * 1024) {
+        alert(`Image is too large. Please upload a file smaller than ${MAX_STORE_IMAGE_SIZE_MB}MB.`)
+        e.target.value = ""
+        return
+      }
       setImageFile(file)
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -1128,6 +1135,7 @@ function CreateStoreItemDialog({ onSuccess, rankOptions }: { onSuccess: () => vo
       if (imageFile) {
         const uploadFormData = new FormData()
         uploadFormData.append("file", imageFile)
+        uploadFormData.append("organizerWallet", "store-catalog")
 
         const uploadResponse = await fetch("/api/upload-nft-image", {
           method: "POST",
@@ -1135,7 +1143,8 @@ function CreateStoreItemDialog({ onSuccess, rankOptions }: { onSuccess: () => vo
         })
 
         if (!uploadResponse.ok) {
-          throw new Error("Failed to upload image")
+          const error = await uploadResponse.json().catch(() => null)
+          throw new Error(error?.error || "Failed to upload image")
         }
 
         const uploadResult = await uploadResponse.json()
@@ -1261,7 +1270,7 @@ function CreateStoreItemDialog({ onSuccess, rankOptions }: { onSuccess: () => vo
             </div>
 
             <div className="space-y-2">
-              <Label>Price ($) *</Label>
+              <Label>Price (SUI) *</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -1354,6 +1363,11 @@ function EditStoreItemDialog({
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      if (file.size > MAX_STORE_IMAGE_SIZE_MB * 1024 * 1024) {
+        alert(`Image is too large. Please upload a file smaller than ${MAX_STORE_IMAGE_SIZE_MB}MB.`)
+        e.target.value = ""
+        return
+      }
       setImageFile(file)
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -1373,6 +1387,7 @@ function EditStoreItemDialog({
       if (imageFile) {
         const uploadFormData = new FormData()
         uploadFormData.append("file", imageFile)
+        uploadFormData.append("organizerWallet", "store-catalog")
 
         const uploadResponse = await fetch("/api/upload-nft-image", {
           method: "POST",
@@ -1380,7 +1395,8 @@ function EditStoreItemDialog({
         })
 
         if (!uploadResponse.ok) {
-          throw new Error("Failed to upload image")
+          const error = await uploadResponse.json().catch(() => null)
+          throw new Error(error?.error || "Failed to upload image")
         }
 
         const uploadResult = await uploadResponse.json()
@@ -1493,7 +1509,7 @@ function EditStoreItemDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Price ($) *</Label>
+              <Label>Price (SUI) *</Label>
               <Input
                 type="number"
                 step="0.01"

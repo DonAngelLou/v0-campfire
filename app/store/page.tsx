@@ -224,7 +224,7 @@ function StoreContent() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl font-bold text-primary">${item.price}</span>
+                  <span className="text-2xl font-bold text-primary">{item.price} SUI</span>
                   <Button size="sm" className="gap-2 transition-all duration-200 hover:scale-105">
                     <ShoppingCart className="w-4 h-4" />
                     View
