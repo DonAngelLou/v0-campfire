@@ -1,8 +1,8 @@
 "use client"
 
+import type React from "react"
+
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/lib/auth-context"
 import { createClient } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,11 +25,29 @@ import {
   Trash2,
   Shield,
   Eye,
+  ShoppingCart,
+  Plus,
+  Edit,
+  DollarSign,
+  Package,
+  BarChart,
+  XCircle,
 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { generateUserId } from "@/lib/utils"
-
-const SUPERADMIN_WALLET = "your-admin.eth"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import Image from "next/image"
+import { useRouter } from "next/navigation"
 
 interface SystemStats {
   totalUsers: number
@@ -76,11 +94,36 @@ interface AwardRecord {
   challenge_title?: string
 }
 
+interface StoreItem {
+  id: string
+  name: string
+  description: string
+  rank: number
+  rank_name: string
+  rank_color: string
+  price: number
+  image_url: string
+  is_customizable: boolean
+  is_active: boolean
+  quantity: number
+  artist_name: string | null
+  artist_description: string | null
+  created_at: string
+}
+
+interface PurchaseHistory {
+  id: string
+  organizer_wallet: string
+  store_item_id: string
+  price_paid: number
+  purchased_at: string
+  organizer_name?: string
+  item_name?: string
+}
+
 export default function SuperAdminPage() {
-  const { user } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const [authorized, setAuthorized] = useState(false)
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [dbConnected, setDbConnected] = useState(false)
   const [users, setUsers] = useState<User[]>([])
@@ -90,28 +133,20 @@ export default function SuperAdminPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [sqlQuery, setSqlQuery] = useState("")
   const [sqlResult, setSqlResult] = useState<any>(null)
+  const [storeItems, setStoreItems] = useState<StoreItem[]>([])
+  const [purchases, setPurchases] = useState<PurchaseHistory[]>([])
+  const [storeStats, setStoreStats] = useState({
+    totalItems: 0,
+    activeItems: 0,
+    totalRevenue: 0,
+    totalPurchases: 0,
+  })
 
   useEffect(() => {
-    console.log("[v0] SuperAdmin: Checking authorization")
-    console.log("[v0] Current user:", user?.wallet_address)
-
-    if (!user) {
-      console.log("[v0] No user logged in, redirecting to admin login")
-      router.push("/genadmin/login")
-      return
-    }
-
-    if (user.wallet_address !== SUPERADMIN_WALLET) {
-      console.log("[v0] Unauthorized access attempt by:", user.wallet_address)
-      setAuthorized(false)
-      setLoading(false)
-      return
-    }
-
-    console.log("[v0] Superadmin authorized")
-    setAuthorized(true)
+    console.log("[v0] Loading genadmin dashboard")
     loadDashboardData()
-  }, [user, router])
+    loadStoreData()
+  }, [])
 
   const loadDashboardData = async () => {
     console.log("[v0] Loading dashboard data")
@@ -208,6 +243,43 @@ export default function SuperAdminPage() {
     }
   }
 
+  const loadStoreData = async () => {
+    console.log("[v0] Loading store data")
+    const supabase = createClient()
+
+    try {
+      // Load store items
+      const { data: itemsData } = await supabase.from("store_items").select("*").order("rank", { ascending: true })
+      setStoreItems(itemsData || [])
+
+      // Load purchase history with joins
+      const { data: purchasesData } = await supabase
+        .from("purchase_history")
+        .select(`
+          *,
+          organizers!purchase_history_organizer_wallet_fkey(org_name),
+          store_items!purchase_history_store_item_id_fkey(name)
+        `)
+        .order("purchased_at", { ascending: false })
+        .limit(50)
+
+      setPurchases(purchasesData || [])
+
+      // Calculate stats
+      const totalRevenue = purchasesData?.reduce((sum, p) => sum + Number(p.price_paid), 0) || 0
+      setStoreStats({
+        totalItems: itemsData?.length || 0,
+        activeItems: itemsData?.filter((item) => item.is_active !== false).length || 0,
+        totalRevenue,
+        totalPurchases: purchasesData?.length || 0,
+      })
+
+      console.log("[v0] Store data loaded successfully")
+    } catch (error) {
+      console.error("[v0] Error loading store data:", error)
+    }
+  }
+
   const handleDeleteUser = async (walletAddress: string) => {
     if (!confirm(`Are you sure you want to delete user ${walletAddress}?`)) return
 
@@ -265,6 +337,32 @@ export default function SuperAdminPage() {
     }
   }
 
+  const handleDeleteStoreItem = async (itemId: string) => {
+    if (!confirm("Are you sure you want to delete this store item?")) return
+
+    const supabase = createClient()
+    const { error } = await supabase.from("store_items").delete().eq("id", itemId)
+
+    if (error) {
+      alert("Error deleting item: " + error.message)
+    } else {
+      alert("Item deleted successfully")
+      loadStoreData()
+    }
+  }
+
+  const handleToggleItemActive = async (itemId: string, currentStatus: boolean) => {
+    const supabase = createClient()
+    const { error } = await supabase.from("store_items").update({ is_active: !currentStatus }).eq("id", itemId)
+
+    if (error) {
+      alert("Error updating item status: " + error.message)
+    } else {
+      alert("Item status updated")
+      loadStoreData()
+    }
+  }
+
   const handleRunSQL = async () => {
     if (!sqlQuery.trim()) return
     if (!confirm("Are you sure you want to run this SQL query? This can be dangerous!")) return
@@ -292,31 +390,20 @@ export default function SuperAdminPage() {
     )
   }
 
-  if (!authorized) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-500">
-              <AlertCircle className="w-6 h-6" />
-              Access Denied
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">You do not have permission to access this page.</p>
-            <Button onClick={() => router.push("/")}>Return Home</Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   const filteredUsers = users.filter(
     (u) =>
       u.wallet_address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       generateUserId(u.wallet_address).includes(searchTerm),
   )
+
+  const rankOptions = [
+    { value: 1, label: "Paragon", color: "#805AD5" },
+    { value: 2, label: "Luminary", color: "#D69E2E" },
+    { value: 3, label: "Vanguard", color: "#38A169" },
+    { value: 4, label: "Adept", color: "#4299E1" },
+    { value: 5, label: "Initiate", color: "#A0AEC0" },
+  ]
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -424,6 +511,7 @@ export default function SuperAdminPage() {
           <TabsTrigger value="organizations">Organizations</TabsTrigger>
           <TabsTrigger value="challenges">Challenges</TabsTrigger>
           <TabsTrigger value="badges">Badges</TabsTrigger>
+          <TabsTrigger value="store">Store</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
         </TabsList>
@@ -659,6 +747,189 @@ export default function SuperAdminPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="store" className="space-y-4">
+          {/* Store Statistics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Package className="w-4 h-4" />
+                  Total Items
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{storeStats.totalItems}</p>
+                <p className="text-xs text-muted-foreground">{storeStats.activeItems} active</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4" />
+                  Total Purchases
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{storeStats.totalPurchases}</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" />
+                  Total Revenue
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">${storeStats.totalRevenue.toFixed(2)}</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <BarChart className="w-4 h-4" />
+                  Avg Price
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">
+                  $
+                  {storeStats.totalItems > 0
+                    ? (storeStats.totalRevenue / storeStats.totalPurchases || 0).toFixed(2)
+                    : "0.00"}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Store Items Management */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Store Items Management</CardTitle>
+                  <CardDescription>Create, edit, and manage NFT badge designs</CardDescription>
+                </div>
+                <CreateStoreItemDialog onSuccess={loadStoreData} rankOptions={rankOptions} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Image</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Rank</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Customizable</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {storeItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-muted">
+                            <Image
+                              src={item.image_url || "/placeholder.svg"}
+                              alt={item.name}
+                              fill
+                              className="object-cover"
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-semibold">{item.name}</p>
+                            <p className="text-xs text-muted-foreground line-clamp-1">{item.description}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge style={{ backgroundColor: item.rank_color, color: "white" }}>{item.rank_name}</Badge>
+                        </TableCell>
+                        <TableCell className="font-semibold">${item.price}</TableCell>
+                        <TableCell>{item.quantity || "∞"}</TableCell>
+                        <TableCell>
+                          {item.is_customizable ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-muted-foreground" />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={item.is_active !== false ? "default" : "secondary"}>
+                            {item.is_active !== false ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <EditStoreItemDialog item={item} onSuccess={loadStoreData} rankOptions={rankOptions} />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleToggleItemActive(item.id, item.is_active !== false)}
+                            >
+                              {item.is_active !== false ? "Disable" : "Enable"}
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleDeleteStoreItem(item.id)}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Purchase History */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Purchase History</CardTitle>
+              <CardDescription>View all store transactions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Organization</TableHead>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Purchased</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {purchases.map((purchase) => (
+                      <TableRow key={purchase.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-semibold">{purchase.organizer_name || "Unknown"}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{purchase.organizer_wallet}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{purchase.item_name || "Unknown Item"}</TableCell>
+                        <TableCell className="font-semibold">${Number(purchase.price_paid).toFixed(2)}</TableCell>
+                        <TableCell className="text-sm">
+                          {new Date(purchase.purchased_at).toLocaleDateString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Analytics */}
         <TabsContent value="analytics" className="space-y-4">
           <Card>
@@ -814,5 +1085,479 @@ export default function SuperAdminPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+function CreateStoreItemDialog({ onSuccess, rankOptions }: { onSuccess: () => void; rankOptions: any[] }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string>("")
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    rank: 5,
+    price: 10,
+    quantity: 1,
+    is_customizable: true,
+    artist_name: "",
+    artist_description: "",
+  })
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      console.log("[v0] Creating store item with data:", formData)
+
+      // Upload image if provided
+      let imageUrl = "/placeholder.svg?height=400&width=400"
+      if (imageFile) {
+        const uploadFormData = new FormData()
+        uploadFormData.append("file", imageFile)
+
+        const uploadResponse = await fetch("/api/upload-nft-image", {
+          method: "POST",
+          body: uploadFormData,
+        })
+
+        if (!uploadResponse.ok) {
+          throw new Error("Failed to upload image")
+        }
+
+        const uploadResult = await uploadResponse.json()
+        imageUrl = uploadResult.url
+      }
+
+      // Get rank info
+      const rankInfo = rankOptions.find((r) => r.value === formData.rank)
+
+      // Create store item
+      const supabase = createClient()
+      const { error } = await supabase.from("store_items").insert({
+        name: formData.name,
+        description: formData.description,
+        rank: formData.rank,
+        rank_name: rankInfo?.label || "",
+        rank_color: rankInfo?.color || "",
+        price: formData.price,
+        quantity: formData.rank === 1 ? 1 : formData.quantity,
+        image_url: imageUrl,
+        is_customizable: formData.rank === 1 ? false : formData.is_customizable,
+        artist_name: formData.artist_name || null,
+        artist_description: formData.artist_description || null,
+        is_active: true,
+      })
+
+      if (error) throw error
+
+      alert("Store item created successfully!")
+      setOpen(false)
+      onSuccess()
+
+      // Reset form
+      setFormData({
+        name: "",
+        description: "",
+        rank: 5,
+        price: 10,
+        quantity: 1,
+        is_customizable: true,
+        artist_name: "",
+        artist_description: "",
+      })
+      setImageFile(null)
+      setImagePreview("")
+    } catch (error: any) {
+      console.error("[v0] Error creating store item:", error)
+      alert("Error: " + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="gap-2">
+          <Plus className="w-4 h-4" />
+          Add Store Item
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create Store Item</DialogTitle>
+          <DialogDescription>Add a new NFT badge design to the store</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>NFT Image *</Label>
+            <Input type="file" accept="image/*" onChange={handleImageChange} required />
+            {imagePreview && (
+              <div className="relative w-32 h-32 rounded-lg overflow-hidden bg-muted">
+                <Image src={imagePreview || "/placeholder.svg"} alt="Preview" fill className="object-cover" />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Name *</Label>
+            <Input
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Description *</Label>
+            <Textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Rank *</Label>
+              <Select
+                value={formData.rank.toString()}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    rank: Number.parseInt(value),
+                    quantity: Number.parseInt(value) === 1 ? 1 : formData.quantity,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {rankOptions.map((rank) => (
+                    <SelectItem key={rank.value} value={rank.value.toString()}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: rank.color }} />
+                        {rank.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Price ($) *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Quantity to Mint *</Label>
+            <Input
+              type="number"
+              min="1"
+              value={formData.quantity}
+              onChange={(e) => setFormData({ ...formData, quantity: Number.parseInt(e.target.value) })}
+              disabled={formData.rank === 1}
+              required
+            />
+            {formData.rank === 1 && (
+              <p className="text-xs text-muted-foreground">Paragon NFTs can only be minted once</p>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Switch
+              checked={formData.is_customizable}
+              onCheckedChange={(checked) => setFormData({ ...formData, is_customizable: checked })}
+              disabled={formData.rank === 1}
+            />
+            <Label>Customizable</Label>
+          </div>
+
+          {formData.rank === 1 && (
+            <>
+              <div className="space-y-2">
+                <Label>Artist Name</Label>
+                <Input
+                  value={formData.artist_name}
+                  onChange={(e) => setFormData({ ...formData, artist_name: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Artist Description</Label>
+                <Textarea
+                  value={formData.artist_description}
+                  onChange={(e) => setFormData({ ...formData, artist_description: e.target.value })}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="flex gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading} className="flex-1">
+              {loading ? "Creating..." : "Create Item"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function EditStoreItemDialog({
+  item,
+  onSuccess,
+  rankOptions,
+}: { item: StoreItem; onSuccess: () => void; rankOptions: any[] }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string>(item.image_url)
+  const [formData, setFormData] = useState({
+    name: item.name,
+    description: item.description,
+    rank: item.rank,
+    price: item.price,
+    quantity: item.quantity || 1,
+    is_customizable: item.is_customizable,
+    artist_name: item.artist_name || "",
+    artist_description: item.artist_description || "",
+  })
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      // Upload new image if provided
+      let imageUrl = item.image_url
+      if (imageFile) {
+        const uploadFormData = new FormData()
+        uploadFormData.append("file", imageFile)
+
+        const uploadResponse = await fetch("/api/upload-nft-image", {
+          method: "POST",
+          body: uploadFormData,
+        })
+
+        if (!uploadResponse.ok) {
+          throw new Error("Failed to upload image")
+        }
+
+        const uploadResult = await uploadResponse.json()
+        imageUrl = uploadResult.url
+      }
+
+      // Get rank info
+      const rankInfo = rankOptions.find((r) => r.value === formData.rank)
+
+      // Update store item
+      const supabase = createClient()
+      const { error } = await supabase
+        .from("store_items")
+        .update({
+          name: formData.name,
+          description: formData.description,
+          rank: formData.rank,
+          rank_name: rankInfo?.label || item.rank_name,
+          rank_color: rankInfo?.color || item.rank_color,
+          price: formData.price,
+          quantity: formData.rank === 1 ? 1 : formData.quantity,
+          image_url: imageUrl,
+          is_customizable: formData.rank === 1 ? false : formData.is_customizable,
+          artist_name: formData.artist_name || null,
+          artist_description: formData.artist_description || null,
+        })
+        .eq("id", item.id)
+
+      if (error) throw error
+
+      alert("Store item updated successfully!")
+      setOpen(false)
+      onSuccess()
+    } catch (error: any) {
+      console.error("[v0] Error updating store item:", error)
+      alert("Error: " + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Edit className="w-4 h-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Store Item</DialogTitle>
+          <DialogDescription>Update NFT badge design details</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>NFT Image</Label>
+            <Input type="file" accept="image/*" onChange={handleImageChange} />
+            {imagePreview && (
+              <div className="relative w-32 h-32 rounded-lg overflow-hidden bg-muted">
+                <Image src={imagePreview || "/placeholder.svg"} alt="Preview" fill className="object-cover" />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Name *</Label>
+            <Input
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Description *</Label>
+            <Textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Rank *</Label>
+              <Select
+                value={formData.rank.toString()}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    rank: Number.parseInt(value),
+                    quantity: Number.parseInt(value) === 1 ? 1 : formData.quantity,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {rankOptions.map((rank) => (
+                    <SelectItem key={rank.value} value={rank.value.toString()}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: rank.color }} />
+                        {rank.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Price ($) *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Quantity</Label>
+            <Input
+              type="number"
+              min="1"
+              value={formData.quantity}
+              onChange={(e) => setFormData({ ...formData, quantity: Number.parseInt(e.target.value) })}
+              disabled={formData.rank === 1}
+            />
+            {formData.rank === 1 && (
+              <p className="text-xs text-muted-foreground">Paragon NFTs can only be minted once</p>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Switch
+              checked={formData.is_customizable}
+              onCheckedChange={(checked) => setFormData({ ...formData, is_customizable: checked })}
+              disabled={formData.rank === 1}
+            />
+            <Label>Customizable</Label>
+          </div>
+
+          {formData.rank === 1 && (
+            <>
+              <div className="space-y-2">
+                <Label>Artist Name</Label>
+                <Input
+                  value={formData.artist_name}
+                  onChange={(e) => setFormData({ ...formData, artist_name: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Artist Description</Label>
+                <Textarea
+                  value={formData.artist_description}
+                  onChange={(e) => setFormData({ ...formData, artist_description: e.target.value })}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="flex gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading} className="flex-1">
+              {loading ? "Updating..." : "Update Item"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

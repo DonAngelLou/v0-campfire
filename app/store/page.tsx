@@ -12,7 +12,7 @@ import { ShoppingCart, Sparkles } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { ProtectedRoute } from "@/components/protected-route"
 import { AppHeader } from "@/components/app-header"
-import { useAuth } from "@/lib/auth-context"
+import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import Image from "next/image"
 
 interface StoreItem {
@@ -38,31 +38,51 @@ export default function StorePage() {
 }
 
 function StoreContent() {
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useWalletAuth()
   const router = useRouter()
   const [storeItems, setStoreItems] = useState<StoreItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedRank, setSelectedRank] = useState<string>("all")
+  const [isOrgMember, setIsOrgMember] = useState(false)
 
   useEffect(() => {
-    if (user) {
-      if (user.role !== "organizer") {
-        router.push(`/profile/${user.wallet_address}`)
-        return
-      }
+    if (user && !authLoading) {
+      console.log("[v0] Store page - checking organization membership for user:", user.wallet_address)
+      checkOrgMembership()
       fetchStoreItems()
     }
-  }, [user])
+  }, [user, authLoading])
+
+  const checkOrgMembership = async () => {
+    const supabase = createClient()
+    const { data: memberships } = await supabase
+      .from("organization_members")
+      .select("*")
+      .eq("user_wallet", user?.wallet_address)
+
+    console.log("[v0] Store page - organization memberships:", memberships)
+
+    if (!memberships || memberships.length === 0) {
+      console.log("[v0] Store page - user is not a member of any organization, redirecting")
+      router.push(`/profile/${user?.wallet_address}`)
+      return
+    }
+
+    setIsOrgMember(true)
+  }
 
   const fetchStoreItems = async () => {
+    console.log("[v0] Store page - fetching store items")
     const supabase = createClient()
     const { data } = await supabase.from("store_items").select("*").order("rank", { ascending: true })
 
+    console.log("[v0] Store page - fetched items:", data?.length || 0)
     setStoreItems(data || [])
     setIsLoading(false)
   }
 
-  if (isLoading) {
+  if (authLoading || isLoading) {
+    console.log("[v0] Store page - loading state")
     return (
       <div className="min-h-screen bg-background">
         <AppHeader />
@@ -73,7 +93,12 @@ function StoreContent() {
     )
   }
 
-  if (!user || user.role !== "organizer") return null
+  if (!user || !isOrgMember) {
+    console.log("[v0] Store page - no user or not org member, returning null")
+    return null
+  }
+
+  console.log("[v0] Store page - rendering store content")
 
   const filteredItems =
     selectedRank === "all" ? storeItems : storeItems.filter((item) => item.rank.toString() === selectedRank)

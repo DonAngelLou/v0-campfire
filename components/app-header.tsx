@@ -4,14 +4,38 @@ import Link from "next/link"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { ThemeToggle } from "./theme-toggle"
 import { Button } from "./ui/button"
-import { LogOut, User, Trophy, Users, Building2 } from "lucide-react"
+import { LogOut, User, Users, Building2, Calendar } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase"
 
 export function AppHeader() {
   const { user, logout } = useWalletAuth()
   const router = useRouter()
+  const [firstOrgWallet, setFirstOrgWallet] = useState<string | null>(null)
 
   const userWallet = user?.sui_wallet_address || user?.wallet_address
+
+  useEffect(() => {
+    if (!user) return
+
+    const fetchFirstOrg = async () => {
+      const supabase = createClient()
+      const { data: memberships } = await supabase
+        .from("organization_members")
+        .select("organization_wallet")
+        .eq("user_wallet", user.wallet_address)
+        .eq("status", "active")
+        .order("accepted_at", { ascending: false })
+        .limit(1)
+
+      if (memberships && memberships.length > 0) {
+        setFirstOrgWallet(memberships[0].organization_wallet)
+      }
+    }
+
+    fetchFirstOrg()
+  }, [user])
 
   const handleLogout = () => {
     logout()
@@ -19,8 +43,9 @@ export function AppHeader() {
   }
 
   const handleOrganizationClick = () => {
-    if (userWallet) {
-      window.open(`/organizer/${userWallet}`, "_blank")
+    const targetWallet = firstOrgWallet || userWallet
+    if (targetWallet) {
+      window.open(`/organizer/${targetWallet}`, "_blank")
     }
   }
 
@@ -54,8 +79,8 @@ export function AppHeader() {
               </Link>
               <Link href="/challenges">
                 <Button variant="ghost" size="sm" className="gap-2">
-                  <Trophy className="w-4 h-4" />
-                  Challenges
+                  <Calendar className="w-4 h-4" />
+                  Events
                 </Button>
               </Link>
               <Button variant="ghost" size="sm" className="gap-2" onClick={handleOrganizationClick}>

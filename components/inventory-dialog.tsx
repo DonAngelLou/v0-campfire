@@ -14,10 +14,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Package, Sparkles } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/lib/auth-context"
 import { NftDetailDialog } from "./nft-detail-dialog"
+import { MintNftDialog } from "./mint-nft-dialog"
 
 interface StoreItem {
   id: number
@@ -35,7 +37,7 @@ interface StoreItem {
 interface InventoryItem {
   id: number
   organizer_wallet: string
-  store_item_id: number
+  store_item_id: number | null
   custom_name: string | null
   custom_description: string | null
   purchased_at: string
@@ -43,7 +45,11 @@ interface InventoryItem {
   awarded_to: string | null
   awarded_at: string | null
   challenge_id: number | null
-  store_items: StoreItem
+  is_custom_minted: boolean
+  custom_image_url: string | null
+  quantity: number
+  awarded_count: number
+  store_items: StoreItem | null
 }
 
 const RANK_INFO = {
@@ -91,11 +97,26 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
 
   const filterByRank = (items: InventoryItem[]) => {
     if (selectedRank === "all") return items
-    return items.filter((item) => item.store_items.rank === Number.parseInt(selectedRank))
+    return items.filter((item) => !item.is_custom_minted && item.store_items?.rank === Number.parseInt(selectedRank))
   }
 
-  const availableItems = filterByRank(inventory.filter((item) => !item.awarded))
-  const awardedItems = filterByRank(inventory.filter((item) => item.awarded))
+  const availableItems = filterByRank(
+    inventory.filter((item) => {
+      if (item.is_custom_minted) {
+        return item.awarded_count < item.quantity
+      }
+      return !item.awarded
+    }),
+  )
+
+  const awardedItems = filterByRank(
+    inventory.filter((item) => {
+      if (item.is_custom_minted) {
+        return item.awarded_count >= item.quantity
+      }
+      return item.awarded
+    }),
+  )
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -106,26 +127,33 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
             <Package className="w-5 h-5" />
             NFT Inventory
           </DialogTitle>
-          <DialogDescription>View and manage your purchased NFT badges</DialogDescription>
+          <DialogDescription>View and manage your purchased and minted NFT badges</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Rank Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Filter by rank:</span>
-            <Select value={selectedRank} onValueChange={setSelectedRank}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Ranks" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Ranks</SelectItem>
-                <SelectItem value="5">Initiate</SelectItem>
-                <SelectItem value="4">Adept</SelectItem>
-                <SelectItem value="3">Vanguard</SelectItem>
-                <SelectItem value="2">Luminary</SelectItem>
-                <SelectItem value="1">Paragon</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Filter by rank:</span>
+              <Select value={selectedRank} onValueChange={setSelectedRank}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All Ranks" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Ranks</SelectItem>
+                  <SelectItem value="5">Initiate</SelectItem>
+                  <SelectItem value="4">Adept</SelectItem>
+                  <SelectItem value="3">Vanguard</SelectItem>
+                  <SelectItem value="2">Luminary</SelectItem>
+                  <SelectItem value="1">Paragon</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <MintNftDialog onMintSuccess={fetchInventory}>
+              <Button className="gap-2">
+                <Sparkles className="w-4 h-4" />
+                Mint Custom NFT
+              </Button>
+            </MintNftDialog>
           </div>
 
           {/* Tabs */}
@@ -150,7 +178,9 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
                 <div className="text-center py-12">
                   <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                   <p className="text-muted-foreground">No available NFTs in inventory</p>
-                  <p className="text-sm text-muted-foreground mt-2">Visit the store to purchase NFT badges</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Visit the store to purchase NFT badges or mint your own custom NFTs
+                  </p>
                 </div>
               )}
             </TabsContent>
@@ -181,19 +211,29 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
 }
 
 function NftCard({ item, onUpdate }: { item: InventoryItem; onUpdate: () => void }) {
-  const rankInfo = RANK_INFO[item.store_items.rank as keyof typeof RANK_INFO]
-  const displayName = item.custom_name || item.store_items.name
+  const isCustom = item.is_custom_minted
+  const displayName = item.custom_name || item.store_items?.name || "Custom NFT"
+  const displayImage = isCustom ? item.custom_image_url : item.store_items?.image_url
+  const rankInfo = !isCustom && item.store_items ? RANK_INFO[item.store_items.rank as keyof typeof RANK_INFO] : null
 
   return (
     <NftDetailDialog item={item} onUpdate={onUpdate}>
       <div className="group cursor-pointer border rounded-lg overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg">
         <div className="aspect-square relative overflow-hidden bg-muted">
           <img
-            src={item.store_items.image_url || "/placeholder.svg"}
+            src={displayImage || "/placeholder.svg"}
             alt={displayName}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
           />
-          {item.store_items.rank === 1 && (
+          {isCustom && (
+            <div className="absolute top-2 right-2">
+              <Badge className="gap-1 bg-primary text-xs">
+                <Sparkles className="w-3 h-3" />
+                Custom
+              </Badge>
+            </div>
+          )}
+          {!isCustom && item.store_items?.rank === 1 && (
             <div className="absolute top-2 right-2">
               <Sparkles className="w-5 h-5 text-yellow-400 animate-pulse" />
             </div>
@@ -201,9 +241,17 @@ function NftCard({ item, onUpdate }: { item: InventoryItem; onUpdate: () => void
         </div>
         <div className="p-3 space-y-2">
           <h3 className="font-semibold text-sm line-clamp-1">{displayName}</h3>
-          <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-xs">
-            {rankInfo.name}
-          </Badge>
+          <div className="flex items-center justify-between gap-2">
+            {rankInfo ? (
+              <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-xs">
+                {rankInfo.name}
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-xs">
+                Qty: {item.quantity - item.awarded_count}/{item.quantity}
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
     </NftDetailDialog>

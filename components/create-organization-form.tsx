@@ -14,11 +14,16 @@ import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { Building2, CreditCard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
-export function CreateOrganizationForm() {
+interface CreateOrganizationFormProps {
+  onSuccess?: () => void
+}
+
+export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProps) {
   const { user } = useWalletAuth()
   const router = useRouter()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
+  const [isRedirecting, setIsRedirecting] = useState(false)
   const [step, setStep] = useState<"form" | "payment">("form")
   const [formData, setFormData] = useState({
     orgName: "",
@@ -27,9 +32,11 @@ export function CreateOrganizationForm() {
 
   const checkOrgNameUnique = async (name: string): Promise<boolean> => {
     const supabase = createClient()
-    const { data, error } = await supabase.from("organizers").select("org_name").ilike("org_name", name).single()
+    const { data, error } = await supabase.from("organizers").select("org_name").eq("org_name", name.toLowerCase())
 
-    return !data // Returns true if no organization with this name exists
+    console.log("[v0] Checking org name uniqueness:", { name, data, error })
+
+    return !data || data.length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -81,12 +88,16 @@ export function CreateOrganizationForm() {
     try {
       const supabase = createClient()
 
+      console.log("[v0] Starting organization creation for user:", user.wallet_address)
+
       // Simulate payment processing
       await new Promise((resolve) => setTimeout(resolve, 2000))
 
       // Generate unique wallet address for organization
       const orgWallet = `org_${Date.now()}_${Math.random().toString(36).substring(7)}`
+      console.log("[v0] Generated org wallet:", orgWallet)
 
+      console.log("[v0] Inserting user entry for org...")
       const { error: userError } = await supabase.from("users").insert({
         wallet_address: orgWallet,
         display_name: formData.orgName,
@@ -94,17 +105,28 @@ export function CreateOrganizationForm() {
         role: "organizer",
       })
 
-      if (userError) throw userError
+      if (userError) {
+        console.error("[v0] Error creating user:", userError)
+        throw userError
+      }
+      console.log("[v0] User entry created successfully")
 
+      console.log("[v0] Inserting organizer entry...")
       const { error: orgError } = await supabase.from("organizers").insert({
         wallet_address: orgWallet,
         org_name: formData.orgName,
         org_description: formData.orgDescription,
         verified: false,
+        created_by: user.wallet_address,
       })
 
-      if (orgError) throw orgError
+      if (orgError) {
+        console.error("[v0] Error creating organizer:", orgError)
+        throw orgError
+      }
+      console.log("[v0] Organizer entry created successfully")
 
+      console.log("[v0] Inserting organization member...")
       const { error: memberError } = await supabase.from("organization_members").insert({
         organization_wallet: orgWallet,
         user_wallet: user.wallet_address,
@@ -113,17 +135,23 @@ export function CreateOrganizationForm() {
         accepted_at: new Date().toISOString(),
       })
 
-      if (memberError) throw memberError
+      if (memberError) {
+        console.error("[v0] Error adding organization member:", memberError)
+        throw memberError
+      }
+      console.log("[v0] Organization member added successfully")
+
+      console.log("[v0] Organization created successfully! Redirecting to dashboard...")
+
+      setIsLoading(false)
+      setIsRedirecting(true)
 
       toast({
         title: "Organization Created!",
         description: `${formData.orgName} has been successfully created. Redirecting to dashboard...`,
       })
 
-      // Wait 2 seconds to show the success message, then refresh
-      setTimeout(() => {
-        window.location.reload()
-      }, 2000)
+      router.push("/dashboard")
     } catch (error: any) {
       console.error("[v0] Error creating organization:", error)
       toast({
@@ -132,6 +160,7 @@ export function CreateOrganizationForm() {
         variant: "destructive",
       })
       setIsLoading(false)
+      setIsRedirecting(false)
     }
   }
 
@@ -196,14 +225,14 @@ export function CreateOrganizationForm() {
               </div>
 
               <div className="space-y-3">
-                <Button onClick={handlePayment} disabled={isLoading} className="w-full" size="lg">
-                  {isLoading ? "Processing..." : "Confirm Payment"}
+                <Button onClick={handlePayment} disabled={isLoading || isRedirecting} className="w-full" size="lg">
+                  {isRedirecting ? "Redirecting to dashboard..." : isLoading ? "Processing..." : "Confirm Payment"}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setStep("form")}
-                  disabled={isLoading}
+                  disabled={isLoading || isRedirecting}
                   className="w-full"
                   size="lg"
                 >

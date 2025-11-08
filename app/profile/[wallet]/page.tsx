@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { AwardIcon, HeartIcon, BuildingIcon, UserPlusIcon, ExternalLinkIcon } from "lucide-react"
+import { AwardIcon, HeartIcon, BuildingIcon, UserPlusIcon, ExternalLinkIcon, QrCode } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { ProtectedRoute } from "@/components/protected-route"
 import { AppHeader } from "@/components/app-header"
@@ -17,6 +17,7 @@ import { PendingInfluences } from "@/components/pending-influences"
 import { generateUserId } from "@/lib/utils"
 import { EditProfileInline } from "@/components/edit-profile-inline"
 import { SelectOrganizationDialog } from "@/components/select-organization-dialog"
+import { ShowQRCodeDialog } from "@/components/show-qr-code-dialog"
 
 interface User {
   wallet_address: string
@@ -89,6 +90,7 @@ function ProfileContent() {
     name: string
   } | null>(null)
   const [selectOrgOpen, setSelectOrgOpen] = useState(false)
+  const [qrCodeOpen, setQrCodeOpen] = useState(false)
 
   useEffect(() => {
     console.log("[v0] ProfileContent mounted, wallet:", wallet)
@@ -318,13 +320,24 @@ function ProfileContent() {
 
               <div className="flex items-center gap-4 mt-4">
                 {isOwnProfile && (
-                  <EditProfileInline
-                    wallet={wallet}
-                    displayName={user.display_name}
-                    bio={user.bio}
-                    avatarUrl={user.avatar_url}
-                    onUpdate={fetchProfileData}
-                  />
+                  <>
+                    <EditProfileInline
+                      wallet={wallet}
+                      displayName={user.display_name}
+                      bio={user.bio}
+                      avatarUrl={user.avatar_url}
+                      onUpdate={fetchProfileData}
+                    />
+                    <Button
+                      onClick={() => setQrCodeOpen(true)}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 transition-all duration-300 hover:scale-105"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      Show QR Code
+                    </Button>
+                  </>
                 )}
                 {!isOwnProfile && (
                   <>
@@ -391,6 +404,7 @@ function ProfileContent() {
                         `/placeholder.svg?height=150&width=150&query=badge` ||
                         "/placeholder.svg" ||
                         "/placeholder.svg" ||
+                        "/placeholder.svg" ||
                         "/placeholder.svg"
                       }
                       alt={highestRankBadge.organizer_inventory?.store_items?.name || "Badge"}
@@ -450,6 +464,7 @@ function ProfileContent() {
                       src={
                         award.organizer_inventory?.store_items?.image_url ||
                         `/placeholder.svg?height=300&width=300&query=badge` ||
+                        "/placeholder.svg" ||
                         "/placeholder.svg" ||
                         "/placeholder.svg" ||
                         "/placeholder.svg"
@@ -523,6 +538,14 @@ function ProfileContent() {
 
       {/* Organization selector dialog */}
       <SelectOrganizationDialog open={selectOrgOpen} onOpenChange={setSelectOrgOpen} userWallet={wallet} />
+
+      {/* QR Code Dialog */}
+      <ShowQRCodeDialog
+        open={qrCodeOpen}
+        onOpenChange={setQrCodeOpen}
+        walletAddress={wallet}
+        displayName={user?.display_name || ""}
+      />
     </div>
   )
 }

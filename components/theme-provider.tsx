@@ -17,12 +17,19 @@ type ThemeProviderState = {
 const ThemeProviderContext = React.createContext<ThemeProviderState | undefined>(undefined)
 
 export function ThemeProvider({ children, defaultTheme = "light" }: ThemeProviderProps) {
-  const [theme, setTheme] = React.useState<Theme>(defaultTheme)
+  const [theme, setTheme] = React.useState<Theme>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("campfire-theme") as Theme | null
+      return stored || defaultTheme
+    }
+    return defaultTheme
+  })
 
   React.useEffect(() => {
     const root = window.document.documentElement
     root.classList.remove("light", "dark")
     root.classList.add(theme)
+    localStorage.setItem("campfire-theme", theme)
   }, [theme])
 
   const value = {

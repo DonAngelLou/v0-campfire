@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { WalletProviders } from "@/lib/wallet-provider"
 import { AuthProvider } from "@/lib/auth-context"
+import { CleanupServiceWorker } from "@/components/cleanup-service-worker"
 import "./globals.css"
 
 const _inter = Inter({ subsets: ["latin"] })
@@ -30,6 +31,7 @@ export default function RootLayout({
           </ThemeProvider>
         </WalletProviders>
         <Analytics />
+        <CleanupServiceWorker />
       </body>
     </html>
   )
