@@ -62,7 +62,12 @@ const RANK_INFO = {
   1: { name: "Paragon", color: "#805AD5" },
 }
 
-export function InventoryDialog({ children }: { children: React.ReactNode }) {
+interface InventoryDialogProps {
+  children: React.ReactNode
+  organizerWallet?: string
+}
+
+export function InventoryDialog({ children, organizerWallet }: InventoryDialogProps) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [inventory, setInventory] = useState<InventoryItem[]>([])
@@ -85,13 +90,13 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (open && user) {
-      fetchInventory()
+      const wallet = organizerWallet || user.wallet_address
+      if (!wallet) return
+      fetchInventory(wallet)
     }
-  }, [open, user])
+  }, [open, user, organizerWallet])
 
-  const fetchInventory = async () => {
-    if (!user) return
-
+  const fetchInventory = async (wallet: string) => {
     setIsLoading(true)
     const supabase = createClient()
 
@@ -101,7 +106,7 @@ export function InventoryDialog({ children }: { children: React.ReactNode }) {
         *,
         store_items(*)
       `)
-      .eq("organizer_wallet", user.wallet_address)
+      .eq("organizer_wallet", wallet)
       .order("purchased_at", { ascending: false })
 
     if (data) {

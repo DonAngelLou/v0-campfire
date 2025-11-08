@@ -225,7 +225,14 @@ function StoreContent() {
               <CardContent>
                 <div className="flex items-center justify-between">
                   <span className="text-2xl font-bold text-primary">{item.price} SUI</span>
-                  <Button size="sm" className="gap-2 transition-all duration-200 hover:scale-105">
+                  <Button
+                    size="sm"
+                    className="gap-2 transition-all duration-200 hover:scale-105"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      router.push(`/store/${item.id}`)
+                    }}
+                  >
                     <ShoppingCart className="w-4 h-4" />
                     View
                   </Button>

@@ -13,13 +13,19 @@ import { createClient } from "@/lib/supabase"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { Building2, CreditCard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useCurrentAccount } from "@mysten/dapp-kit"
+import { buildTreasuryPaymentTransaction, SUI_DECIMALS, useBlockchainTransaction } from "@/lib/sui-blockchain"
 
 interface CreateOrganizationFormProps {
   onSuccess?: () => void
 }
 
+const ORG_CREATION_FEE_SUI = Number(process.env.NEXT_PUBLIC_ORG_CREATION_FEE_SUI ?? "1")
+
 export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProps) {
   const { user } = useWalletAuth()
+  const currentAccount = useCurrentAccount()
+  const { executeTransaction } = useBlockchainTransaction()
   const router = useRouter()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
@@ -79,7 +85,14 @@ export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProp
   }
 
   const handlePayment = async () => {
-    if (!user) return
+    if (!user || !currentAccount) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your Slush wallet to pay the creation fee.",
+        variant: "destructive",
+      })
+      return
+    }
 
     if (isLoading) return
 
@@ -90,8 +103,12 @@ export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProp
 
       console.log("[v0] Starting organization creation for user:", user.wallet_address)
 
-      // Simulate payment processing
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const paymentTx = buildTreasuryPaymentTransaction(ORG_CREATION_FEE_SUI * SUI_DECIMALS)
+      const { digest, success } = await executeTransaction(paymentTx)
+
+      if (!success) {
+        throw new Error("Blockchain payment failed. Please try again.")
+      }
 
       // Generate unique wallet address for organization
       const orgWallet = `org_${Date.now()}_${Math.random().toString(36).substring(7)}`
@@ -148,7 +165,7 @@ export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProp
 
       toast({
         title: "Organization Created!",
-        description: `${formData.orgName} has been successfully created. Redirecting to dashboard...`,
+        description: `${formData.orgName} has been successfully created on-chain.`,
       })
 
       router.push("/dashboard")
@@ -208,7 +225,7 @@ export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProp
 
               <div className="bg-muted p-6 rounded-lg">
                 <p className="text-sm text-muted-foreground mb-2">Creation Fee:</p>
-                <p className="text-3xl font-bold">₱2,500.00</p>
+                <p className="text-3xl font-bold">{ORG_CREATION_FEE_SUI} SUI</p>
               </div>
 
               <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
@@ -220,8 +237,10 @@ export function CreateOrganizationForm({ onSuccess }: CreateOrganizationFormProp
               <div className="bg-muted p-8 rounded-lg text-center">
                 <CreditCard className="w-16 h-16 mx-auto mb-4 text-primary" />
                 <p className="text-lg font-semibold mb-2">Payment Amount</p>
-                <p className="text-4xl font-bold mb-4">₱2,500.00</p>
-                <p className="text-sm text-muted-foreground">This is a simulated payment. Click confirm to proceed.</p>
+                <p className="text-4xl font-bold mb-4">{ORG_CREATION_FEE_SUI} SUI</p>
+                <p className="text-sm text-muted-foreground">
+                  Approve the transaction in your wallet to finalize organization creation.
+                </p>
               </div>
 
               <div className="space-y-3">

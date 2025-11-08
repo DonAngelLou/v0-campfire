@@ -131,10 +131,19 @@ export default function DashboardPage() {
       setAllOrganizations(validOrgs)
 
       if (validOrgs.length > 0) {
-        setOrganizer(validOrgs[0])
-        if (!selectedOrg) {
-          console.log("[v0] Setting selected org to:", validOrgs[0].wallet_address)
-          setSelectedOrg(validOrgs[0].wallet_address)
+        const storedOrg =
+          typeof window !== "undefined" ? window.localStorage.getItem("campfire_active_org") : null
+        const fallbackOrg = validOrgs[0].wallet_address
+        const preferredOrg = storedOrg && validOrgs.find((org) => org.wallet_address === storedOrg)
+          ? storedOrg
+          : fallbackOrg
+
+        console.log("[v0] Setting selected org to:", preferredOrg)
+        setSelectedOrg(preferredOrg)
+        const activeOrg = validOrgs.find((org) => org.wallet_address === preferredOrg) || validOrgs[0]
+        setOrganizer(activeOrg)
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("campfire_active_org", preferredOrg)
         }
       } else {
         console.log("[v0] No valid organizations found in organizers table")
@@ -233,6 +242,9 @@ export default function DashboardPage() {
     console.log("[v0] Switching to organization:", org.wallet_address)
     setSelectedOrg(org.wallet_address)
     setOrganizer(org)
+    if (typeof window !== "undefined") {
+      localStorage.setItem("campfire_active_org", org.wallet_address)
+    }
   }
 
   return (
@@ -299,7 +311,7 @@ export default function DashboardPage() {
                     userRole={userOrgRole}
                   />
                 )}
-                <InventoryDialog>
+                <InventoryDialog organizerWallet={selectedOrg}>
                   <Button
                     variant="outline"
                     className="gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg bg-transparent"
