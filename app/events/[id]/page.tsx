@@ -150,12 +150,16 @@ function EventDetailContent() {
     const supabase = createClient()
 
     // Check if user is in event team
-    const { data: teamMember } = await supabase
+    const { data: teamMember, error: teamError } = await supabase
       .from("event_team_members")
       .select("role")
       .eq("event_id", eventId)
       .eq("user_id", user.wallet_address)
-      .single()
+      .maybeSingle()
+
+    if (teamError && teamError.code !== "PGRST116") {
+      console.error("[v0] Event team lookup error:", teamError)
+    }
 
     console.log("[v0] Team member query result:", teamMember)
 
@@ -176,14 +180,17 @@ function EventDetailContent() {
 
     const supabase = createClient()
 
-    const { data: registrationData } = await supabase
+    const { data: registrationData, error: registrationError } = await supabase
       .from("event_registrations")
       .select("*")
       .eq("event_id", eventId)
       .eq("user_id", user.wallet_address)
-      .single()
+      .maybeSingle()
 
-    setRegistration(registrationData)
+    if (registrationError && registrationError.code !== "PGRST116") {
+      console.error("[v0] Registration lookup error:", registrationError)
+    }
+    setRegistration(registrationData || null)
 
     const { data: submissionsData } = await supabase
       .from("challenge_completions")

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScanLine, Search, Camera } from "lucide-react"
 import { createClient } from "@/lib/supabase"
+import jsQR from "jsqr"
 
 interface QRScannerDialogProps {
   open: boolean
@@ -22,10 +23,12 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
   const [isSearching, setIsSearching] = useState(false)
   const [simulatedScan, setSimulatedScan] = useState("")
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [cameraSupported, setCameraSupported] = useState(false)
   const [cameraSupportMessage, setCameraSupportMessage] = useState<string | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
     const isLocalhost =
@@ -44,7 +47,10 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
       setCameraSupportMessage("Camera access is unavailable in this environment.")
       return
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const hasModernAPI = !!navigator.mediaDevices?.getUserMedia
+    const legacyGetUserMedia =
+      (navigator as any).getUserMedia || (navigator as any).webkitGetUserMedia || (navigator as any).mozGetUserMedia
+    if (!hasModernAPI && !legacyGetUserMedia) {
       setCameraSupported(false)
       setCameraSupportMessage("This browser does not expose camera APIs. Please use a modern browser.")
       return
@@ -52,6 +58,17 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
     setCameraSupported(true)
     setCameraSupportMessage(null)
   }, [])
+
+  const stopCamera = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      setStream(null)
+    }
+  }, [stream])
 
   useEffect(() => {
     if (open) {
@@ -62,12 +79,15 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
       setCameraError(null)
     } else {
       // Clean up camera stream when dialog closes
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop())
-        setStream(null)
-      }
+      stopCamera()
     }
-  }, [open])
+  }, [open, stopCamera])
+
+  useEffect(() => {
+    return () => {
+      stopCamera()
+    }
+  }, [stopCamera])
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
@@ -87,17 +107,24 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
     setIsSearching(false)
   }
 
+  const handleDetectedWallet = useCallback(
+    (value: string) => {
+      if (!value) return
+      let walletAddress = value.trim()
+      if (walletAddress.includes("/profile/")) {
+        walletAddress = walletAddress.split("/profile/")[1]
+      }
+      if (!walletAddress) return
+      stopCamera()
+      onUserScanned(walletAddress)
+      onOpenChange(false)
+    },
+    [onOpenChange, onUserScanned, stopCamera],
+  )
+
   const handleSimulatedScan = () => {
     if (!simulatedScan.trim()) return
-
-    // Extract wallet address from URL or use as-is
-    let walletAddress = simulatedScan
-    if (simulatedScan.includes("/profile/")) {
-      walletAddress = simulatedScan.split("/profile/")[1]
-    }
-
-    onUserScanned(walletAddress)
-    onOpenChange(false)
+    handleDetectedWallet(simulatedScan)
   }
 
   const requestCameraStream = async () => {
@@ -124,6 +151,11 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
       setStream(mediaStream)
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
+        try {
+          await videoRef.current.play()
+        } catch {
+          // Some browsers block autoplay; keep stream active so user can interact manually.
+        }
       }
       setCameraError(null)
     } catch (error) {
@@ -133,6 +165,54 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
       )
     }
   }
+
+  const scanFrame = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) {
+      animationFrameRef.current = requestAnimationFrame(scanFrame)
+      return
+    }
+    const video = videoRef.current
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+      animationFrameRef.current = requestAnimationFrame(scanFrame)
+      return
+    }
+    const canvas = canvasRef.current
+    const context = canvas.getContext("2d", { willReadFrequently: true })
+    if (!context) {
+      animationFrameRef.current = requestAnimationFrame(scanFrame)
+      return
+    }
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+    try {
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      })
+      if (code?.data) {
+        handleDetectedWallet(code.data)
+        return
+      }
+    } catch (error) {
+      console.error("[v0] QR scan error:", error)
+    }
+
+    animationFrameRef.current = requestAnimationFrame(scanFrame)
+  }, [handleDetectedWallet])
+
+  useEffect(() => {
+    if (stream) {
+      animationFrameRef.current = requestAnimationFrame(scanFrame)
+      return () => {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current)
+          animationFrameRef.current = null
+        }
+      }
+    }
+  }, [stream, scanFrame])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -163,7 +243,27 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
             <div className="space-y-4">
               <div className="aspect-square bg-muted rounded-lg flex items-center justify-center overflow-hidden relative">
                 {stream ? (
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                  <div className="relative w-full h-full">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 border-2 border-primary/80 rounded-lg pointer-events-none"></div>
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-background/80 text-xs px-3 py-1 rounded-full text-muted-foreground">
+                      Align QR code within the frame
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={stopCamera}
+                      className="absolute top-3 right-3 bg-background/80"
+                    >
+                      Stop Camera
+                    </Button>
+                  </div>
                 ) : (
                   <div className="text-center space-y-4">
                     <Camera className="w-16 h-16 mx-auto text-muted-foreground" />
@@ -174,12 +274,18 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
                         Use a camera-enabled device and grant permission to scan QR codes.
                       </p>
                     )}
-                    <Button onClick={startCamera} disabled={!cameraSupported}>
-                      Start Camera
-                    </Button>
                   </div>
                 )}
               </div>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                <Button onClick={startCamera} disabled={!cameraSupported}>
+                  Start Camera
+                </Button>
+                <Button variant="outline" onClick={stopCamera} disabled={!stream} className="bg-transparent">
+                  Stop Camera
+                </Button>
+              </div>
+              <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
 
               <div className="space-y-2">
                 <Label htmlFor="simulatedScan">Or Enter Profile URL / Wallet Address</Label>
