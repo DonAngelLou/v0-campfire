@@ -32,15 +32,18 @@ interface StoreItem {
 interface InventoryItem {
   id: number
   organizer_wallet: string
-  store_item_id: number
+  store_item_id: number | null
   custom_name: string | null
   custom_description: string | null
+  custom_image_url?: string | null
   purchased_at: string
   awarded: boolean
   awarded_to: string | null
   awarded_at: string | null
   challenge_id: number | null
-  store_items: StoreItem
+  is_custom_minted?: boolean
+  mint_cost?: number | null
+  store_items: StoreItem | null
 }
 
 const RANK_INFO = {
@@ -65,9 +68,13 @@ export function NftDetailDialog({
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  const rankInfo = RANK_INFO[item.store_items.rank as keyof typeof RANK_INFO]
-  const displayName = item.custom_name || item.store_items.name
-  const displayDescription = item.custom_description || item.store_items.description
+  const isCustom = item.is_custom_minted || !item.store_items
+  const rank = !isCustom ? item.store_items?.rank : undefined
+  const rankInfo = rank ? RANK_INFO[rank as keyof typeof RANK_INFO] : null
+  const displayName = item.custom_name || item.store_items?.name || "Custom NFT"
+  const displayDescription =
+    item.custom_description || item.store_items?.description || "Custom NFT minted by this organization."
+  const imageSrc = isCustom ? item.custom_image_url || "/placeholder.svg" : item.store_items?.image_url || "/placeholder.svg"
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -81,7 +88,7 @@ export function NftDetailDialog({
             </Button>
           </div>
           <DialogTitle className="flex items-center gap-2">
-            {item.store_items.rank === 1 && <Sparkles className="w-5 h-5 text-yellow-400" />}
+            {rank === 1 && <Sparkles className="w-5 h-5 text-yellow-400" />}
             {displayName}
           </DialogTitle>
           <DialogDescription>NFT Badge Details</DialogDescription>
@@ -90,25 +97,31 @@ export function NftDetailDialog({
         <div className="space-y-6 px-1">
           <div className="aspect-square relative overflow-hidden rounded-lg bg-muted max-w-md mx-auto">
             <img
-              src={item.store_items.image_url || "/placeholder.svg"}
+              src={imageSrc}
               alt={displayName}
               className="w-full h-full object-cover"
             />
           </div>
 
-          <div>
-            <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-sm px-3 py-1">
-              Rank {item.store_items.rank} - {rankInfo.name}
+          {rankInfo ? (
+            <div>
+              <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-sm px-3 py-1">
+                Rank {rank} - {rankInfo.name}
+              </Badge>
+              <p className="text-sm text-muted-foreground mt-2">{rankInfo.meaning}</p>
+            </div>
+          ) : (
+            <Badge variant="secondary" className="text-xs">
+              Custom Mint
             </Badge>
-            <p className="text-sm text-muted-foreground mt-2">{rankInfo.meaning}</p>
-          </div>
+          )}
 
           <div>
             <h3 className="font-semibold mb-2">Description</h3>
             <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{displayDescription}</p>
           </div>
 
-          {item.store_items.rank === 1 && item.store_items.artist_name && (
+          {!isCustom && item.store_items?.rank === 1 && item.store_items.artist_name && (
             <div className="border-t pt-4">
               <h3 className="font-semibold mb-2 flex items-center gap-2">
                 <User className="w-4 h-4" />
@@ -131,8 +144,8 @@ export function NftDetailDialog({
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
               <Coins className="w-4 h-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Price:</span>
-              <span>{item.store_items.price} SUI</span>
+              <span className="text-muted-foreground">{isCustom ? "Mint Cost:" : "Price:"}</span>
+              <span>{isCustom ? item.mint_cost ?? "N/A" : item.store_items?.price} SUI</span>
             </div>
           </div>
 
@@ -173,9 +186,13 @@ export function NFTDetailDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const rankInfo = RANK_INFO[nft.store_items.rank as keyof typeof RANK_INFO]
-  const displayName = nft.custom_name || nft.store_items.name
-  const displayDescription = nft.custom_description || nft.store_items.description
+  const isCustom = nft.is_custom_minted || !nft.store_items
+  const rank = !isCustom ? nft.store_items?.rank : undefined
+  const rankInfo = rank ? RANK_INFO[rank as keyof typeof RANK_INFO] : null
+  const displayName = nft.custom_name || nft.store_items?.name || "Custom NFT"
+  const displayDescription =
+    nft.custom_description || nft.store_items?.description || "Custom NFT minted by this organization."
+  const imageSrc = isCustom ? nft.custom_image_url || "/placeholder.svg" : nft.store_items?.image_url || "/placeholder.svg"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -188,7 +205,7 @@ export function NFTDetailDialog({
             </Button>
           </div>
           <DialogTitle className="flex items-center gap-2">
-            {nft.store_items.rank === 1 && <Sparkles className="w-5 h-5 text-yellow-400" />}
+            {rank === 1 && <Sparkles className="w-5 h-5 text-yellow-400" />}
             {displayName}
           </DialogTitle>
           <DialogDescription>NFT Badge Details</DialogDescription>
@@ -197,25 +214,31 @@ export function NFTDetailDialog({
         <div className="space-y-6 px-1">
           <div className="aspect-square relative overflow-hidden rounded-lg bg-muted max-w-md mx-auto">
             <img
-              src={nft.store_items.image_url || "/placeholder.svg"}
+              src={imageSrc}
               alt={displayName}
               className="w-full h-full object-cover"
             />
           </div>
 
-          <div>
-            <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-sm px-3 py-1">
-              Rank {nft.store_items.rank} - {rankInfo.name}
+          {rankInfo ? (
+            <div>
+              <Badge style={{ backgroundColor: rankInfo.color, color: "white" }} className="text-sm px-3 py-1">
+                Rank {rank} - {rankInfo.name}
+              </Badge>
+              <p className="text-sm text-muted-foreground mt-2">{rankInfo.meaning}</p>
+            </div>
+          ) : (
+            <Badge variant="secondary" className="text-xs">
+              Custom Mint
             </Badge>
-            <p className="text-sm text-muted-foreground mt-2">{rankInfo.meaning}</p>
-          </div>
+          )}
 
           <div>
             <h3 className="font-semibold mb-2">Description</h3>
             <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{displayDescription}</p>
           </div>
 
-          {nft.store_items.rank === 1 && nft.store_items.artist_name && (
+          {!isCustom && nft.store_items?.rank === 1 && nft.store_items.artist_name && (
             <div className="border-t pt-4">
               <h3 className="font-semibold mb-2 flex items-center gap-2">
                 <User className="w-4 h-4" />
@@ -238,8 +261,8 @@ export function NFTDetailDialog({
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
               <Coins className="w-4 h-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Price:</span>
-              <span>{nft.store_items.price} SUI</span>
+              <span className="text-muted-foreground">{isCustom ? "Mint Cost:" : "Price:"}</span>
+              <span>{isCustom ? nft.mint_cost ?? "N/A" : nft.store_items?.price} SUI</span>
             </div>
           </div>
 

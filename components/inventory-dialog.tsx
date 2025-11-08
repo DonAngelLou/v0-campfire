@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Package, Sparkles } from "lucide-react"
 import { createClient } from "@/lib/supabase"
-import { useAuth } from "@/lib/auth-context"
+import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { NftDetailDialog } from "./nft-detail-dialog"
 import { MintNftDialog } from "./mint-nft-dialog"
 import type { BlockchainToken } from "@/types/blockchain"
@@ -65,55 +65,75 @@ const RANK_INFO = {
 interface InventoryDialogProps {
   children: React.ReactNode
   organizerWallet?: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function InventoryDialog({ children, organizerWallet }: InventoryDialogProps) {
-  const { user } = useAuth()
-  const [open, setOpen] = useState(false)
+function getAvailableTokenCount(item: InventoryItem) {
+  if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+    return item.blockchain_tokens.filter((token) => token.status === "available").length
+  }
+  return Math.max((item.quantity || 0) - (item.awarded_count || 0), 0)
+}
+
+function getAwardedTokenCount(item: InventoryItem) {
+  if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+    return item.blockchain_tokens.filter((token) => token.status === "awarded").length
+  }
+  return item.awarded_count || 0
+}
+
+export function InventoryDialog({ children, organizerWallet, open, onOpenChange }: InventoryDialogProps) {
+  const { user, currentAccount } = useWalletAuth()
+  const [internalOpen, setInternalOpen] = useState(false)
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [selectedRank, setSelectedRank] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(true)
 
-  const getAvailableTokenCount = (item: InventoryItem) => {
-    if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
-      return item.blockchain_tokens.filter((token) => token.status === "available").length
-    }
-    return Math.max((item.quantity || 0) - (item.awarded_count || 0), 0)
-  }
+  const resolvedWallet =
+    organizerWallet || user?.sui_wallet_address || user?.wallet_address || currentAccount?.address || null
 
-  const getAwardedTokenCount = (item: InventoryItem) => {
-    if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
-      return item.blockchain_tokens.filter((token) => token.status === "awarded").length
-    }
-    return item.awarded_count || 0
-  }
+  const dialogOpen = open ?? internalOpen
 
   useEffect(() => {
-    if (open && user) {
-      const wallet = organizerWallet || user.wallet_address
-      if (!wallet) return
-      fetchInventory(wallet)
+    if (!dialogOpen || !resolvedWallet) {
+      return
     }
-  }, [open, user, organizerWallet])
+    fetchInventory(resolvedWallet)
+  }, [dialogOpen, resolvedWallet])
 
   const fetchInventory = async (wallet: string) => {
     setIsLoading(true)
-    const supabase = createClient()
+    try {
+      if (organizerWallet) {
+        const response = await fetch(`/api/organizations/${wallet}/inventory`)
+        if (!response.ok) {
+          throw new Error("Failed to load inventory.")
+        }
+        const data = await response.json()
+        setInventory(data as InventoryItem[])
+      } else {
+        const supabase = createClient()
+        const { data } = await supabase
+          .from("organizer_inventory")
+          .select(
+            `
+            *,
+            store_items(*)
+          `,
+          )
+          .eq("organizer_wallet", wallet)
+          .order("purchased_at", { ascending: false })
 
-    const { data, error } = await supabase
-      .from("organizer_inventory")
-      .select(`
-        *,
-        store_items(*)
-      `)
-      .eq("organizer_wallet", wallet)
-      .order("purchased_at", { ascending: false })
-
-    if (data) {
-      setInventory(data as InventoryItem[])
+        if (data) {
+          setInventory(data as InventoryItem[])
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Inventory fetch error:", error)
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
   const filterByRank = (items: InventoryItem[]) => {
@@ -128,7 +148,16 @@ export function InventoryDialog({ children, organizerWallet }: InventoryDialogPr
   )
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={dialogOpen}
+      onOpenChange={(value) => {
+        if (onOpenChange) {
+          onOpenChange(value)
+        } else {
+          setInternalOpen(value)
+        }
+      }}
+    >
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
@@ -157,7 +186,14 @@ export function InventoryDialog({ children, organizerWallet }: InventoryDialogPr
                 </SelectContent>
               </Select>
             </div>
-            <MintNftDialog onMintSuccess={fetchInventory}>
+            <MintNftDialog
+              organizerWallet={resolvedWallet || undefined}
+              onMintSuccess={() => {
+                if (resolvedWallet) {
+                  fetchInventory(resolvedWallet)
+                }
+              }}
+            >
               <Button className="gap-2">
                 <Sparkles className="w-4 h-4" />
                 Mint Custom NFT

@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { X, Package, Ticket, Calendar } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
+import type { BlockchainToken } from "@/types/blockchain"
 
 interface CreateEventDialogProps {
   children: React.ReactNode
@@ -30,17 +31,33 @@ interface CreateEventDialogProps {
 }
 
 interface InventoryItem {
-  id: string
-  store_item_id: string
+  id: number
+  organizer_wallet: string
+  store_item_id: string | null
   custom_name: string | null
   custom_description: string | null
+  custom_image_url: string | null
   purchased_at: string
+  awarded: boolean
+  awarded_to: string | null
+  awarded_at: string | null
+  challenge_id: number | null
+  quantity: number
+  awarded_count: number
+  blockchain_tokens?: BlockchainToken[] | null
   store_items: {
     id: string
     name: string
     rank: number
     image_url: string
+  } | null
+}
+
+const getAvailableTokenCount = (item: InventoryItem) => {
+  if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+    return item.blockchain_tokens.filter((token) => token.status === "available").length
   }
+  return Math.max((item.quantity || 0) - (item.awarded_count || 0), 0)
 }
 
 export function CreateEventDialog({ children, onSuccess, organizationId }: CreateEventDialogProps) {
@@ -50,7 +67,7 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
   const [isLoading, setIsLoading] = useState(false)
   const [step, setStep] = useState(1)
   const [availableNFTs, setAvailableNFTs] = useState<InventoryItem[]>([])
-  const [selectedTicketNFT, setSelectedTicketNFT] = useState<string | null>(null)
+  const [selectedTicketNFT, setSelectedTicketNFT] = useState<number | null>(null)
 
   const [formData, setFormData] = useState({
     name: "",
@@ -78,17 +95,20 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
     if (open && user) {
       fetchAvailableNFTs()
     }
-  }, [open, user])
+  }, [open, user, organizationId])
 
   const fetchAvailableNFTs = async () => {
     if (!user) return
+
+    const walletToQuery = organizationId || user.wallet_address
+    if (!walletToQuery) return
 
     const supabase = createClient()
     const { data, error } = await supabase
       .from("organizer_inventory")
       .select("*, store_items(*)")
-      .eq("organizer_wallet", user.wallet_address)
-      .eq("awarded", false)
+      .eq("organizer_wallet", walletToQuery)
+      .order("purchased_at", { ascending: false })
 
     if (error) {
       console.error("[v0] Error fetching available NFTs:", error)
@@ -96,7 +116,13 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
     }
 
     if (data) {
-      setAvailableNFTs(data)
+      const filtered = (data as InventoryItem[]).filter((item) => getAvailableTokenCount(item) > 0)
+      setAvailableNFTs(filtered)
+      if (filtered.length === 0) {
+        setSelectedTicketNFT(null)
+      } else if (selectedTicketNFT && !filtered.some((nft) => nft.id === selectedTicketNFT)) {
+        setSelectedTicketNFT(filtered[0].id)
+      }
     }
   }
 
@@ -464,24 +490,46 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
                           <div className="p-3 border border-primary rounded-lg bg-primary/5 mb-2">
                             <div className="flex items-center gap-3">
                               <img
-                                src={selectedTicketDetails.store_items.image_url || "/placeholder.svg"}
-                                alt={selectedTicketDetails.store_items.name}
+                                src={
+                                  selectedTicketDetails.store_items?.image_url ||
+                                  selectedTicketDetails.custom_image_url ||
+                                  "/placeholder.svg"
+                                }
+                                alt={
+                                  selectedTicketDetails.store_items?.name ||
+                                    selectedTicketDetails.custom_name ||
+                                    "Selected NFT"
+                                }
                                 className="w-16 h-16 rounded-md object-cover"
                               />
                               <div className="flex-1">
                                 <p className="font-medium">
-                                  {selectedTicketDetails.custom_name || selectedTicketDetails.store_items.name}
+                                  {selectedTicketDetails.custom_name ||
+                                    selectedTicketDetails.store_items?.name ||
+                                    "Custom NFT"}
                                 </p>
-                                <Badge
-                                  variant="outline"
-                                  style={{
-                                    borderColor:
-                                      RANK_CONFIG[selectedTicketDetails.store_items.rank as keyof typeof RANK_CONFIG]
-                                        .color,
-                                  }}
-                                >
-                                  {RANK_CONFIG[selectedTicketDetails.store_items.rank as keyof typeof RANK_CONFIG].name}
-                                </Badge>
+                                {selectedTicketDetails.store_items ? (
+                                  <Badge
+                                    variant="outline"
+                                    style={{
+                                      borderColor:
+                                        RANK_CONFIG[
+                                          selectedTicketDetails.store_items.rank as keyof typeof RANK_CONFIG
+                                        ].color,
+                                    }}
+                                  >
+                                    {
+                                      RANK_CONFIG[
+                                        selectedTicketDetails.store_items.rank as keyof typeof RANK_CONFIG
+                                      ].name
+                                    }
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary">Custom Mint</Badge>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Available supply: {getAvailableTokenCount(selectedTicketDetails)}
+                                </p>
                               </div>
                               <Button
                                 type="button"
@@ -499,13 +547,18 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
                           <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg">
                             <Package className="w-12 h-12 mx-auto mb-2 opacity-50" />
                             <p>No NFTs available in inventory.</p>
-                            <p className="text-sm">Purchase NFTs from the store first.</p>
+                            <p className="text-sm">Purchase or mint NFTs for this organization first.</p>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-3 gap-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             {availableNFTs.map((nft) => {
-                              const rank = RANK_CONFIG[nft.store_items.rank as keyof typeof RANK_CONFIG]
+                              const rank = nft.store_items
+                                ? RANK_CONFIG[nft.store_items.rank as keyof typeof RANK_CONFIG]
+                                : null
                               const isSelected = selectedTicketNFT === nft.id
+                              const imageSrc = nft.store_items?.image_url || nft.custom_image_url || "/placeholder.svg"
+                              const title = nft.custom_name || nft.store_items?.name || "Custom NFT"
+                              const availableCount = getAvailableTokenCount(nft)
                               return (
                                 <button
                                   key={nft.id}
@@ -518,16 +571,23 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
                                   }`}
                                 >
                                   <img
-                                    src={nft.store_items.image_url || "/placeholder.svg"}
-                                    alt={nft.store_items.name}
+                                    src={imageSrc}
+                                    alt={title}
                                     className="w-full aspect-square object-cover rounded-md mb-2"
                                   />
                                   <p className="font-medium text-xs truncate">
-                                    {nft.custom_name || nft.store_items.name}
+                                    {title}
                                   </p>
-                                  <Badge variant="outline" className="text-xs mt-1" style={{ borderColor: rank.color }}>
-                                    {rank.name}
-                                  </Badge>
+                                  {rank ? (
+                                    <Badge variant="outline" className="text-xs mt-1" style={{ borderColor: rank.color }}>
+                                      {rank.name}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-xs mt-1">
+                                      Custom Mint
+                                    </Badge>
+                                  )}
+                                  <p className="text-[10px] text-muted-foreground mt-1">Available: {availableCount}</p>
                                 </button>
                               )
                             })}

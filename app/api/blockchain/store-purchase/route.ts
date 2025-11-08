@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase-server"
+import { supabaseAdmin } from "@/lib/supabase-admin"
 
 export async function POST(request: Request) {
   try {
@@ -27,9 +27,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    const supabase = await createClient()
-
-    const { data: inventory, error: inventoryError } = await supabase
+    const { data: inventory, error: inventoryError } = await supabaseAdmin
       .from("organizer_inventory")
       .insert({
         organizer_wallet: organizerWallet,
@@ -51,8 +49,9 @@ export async function POST(request: Request) {
       console.error("[v0] Store purchase inventory error:", inventoryError)
       return NextResponse.json({ error: inventoryError.message }, { status: 400 })
     }
+    console.log("[v0] Store purchase saved for", organizerWallet, "inventory id:", inventory.id)
 
-    const { error: historyError } = await supabase.from("purchase_history").insert({
+    const { error: historyError } = await supabaseAdmin.from("purchase_history").insert({
       organizer_wallet: organizerWallet,
       store_item_id: storeItemId,
       inventory_id: inventory.id,

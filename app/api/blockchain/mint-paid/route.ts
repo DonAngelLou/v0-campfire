@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase-server"
+import { supabaseAdmin } from "@/lib/supabase-admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,8 +16,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Minted token metadata missing from request" }, { status: 400 })
     }
 
-    const supabase = await createClient()
-
     const normalizedTokens = mintedTokens.slice(0, Number(quantity)).map((token: any) => ({
       objectId: token.objectId,
       status: "available",
@@ -26,7 +24,7 @@ export async function POST(request: NextRequest) {
     }))
 
     // Insert into organizer_inventory with blockchain data
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("organizer_inventory")
       .insert({
         organizer_wallet: organizerWallet,

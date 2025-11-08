@@ -48,94 +48,6 @@ export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganiza
     e.preventDefault()
     if (!user) {
       toast({
-        title: "Authentication Required",
-        description: "Please connect your wallet to create an organization.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!formData.orgName.trim() || !formData.orgDescription.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setStep("payment")
-  }
-
-  const handlePayment = async () => {
-    if (!user) return
-    if (!currentAccount) {
-      toast({
-        title: "Wallet Not Connected",
-        description: "Please connect your Slush wallet to pay the creation fee.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setIsLoading(true)
-
-    try {
-      const supabase = createClient()
-
-      console.log("[v0] Initiating on-chain organization creation payment for:", user.wallet_address)
-      const paymentTx = buildTreasuryPaymentTransaction(ORG_CREATION_FEE_SUI * SUI_DECIMALS)
-      const { digest, success } = await executeTransaction(paymentTx)
-
-      if (!success) {
-        throw new Error("Blockchain payment failed. Please try again.")
-      }
-
-      // Generate unique wallet address for organization
-      const orgWallet = `org_${Date.now()}_${Math.random().toString(36).substring(7)}`
-
-      console.log("[v0] Creating organization with wallet:", orgWallet)
-
-      const { error: userError } = await supabase.from("users").insert({
-        wallet_address: orgWallet,
-        display_name: formData.orgName,
-        bio: formData.orgDescription,
-        role: "organizer",
-      })
-
-      if (userError) {
-        console.error("[v0] Error creating user record:", userError)
-        throw userError
-      }
-
-      const { error: orgError } = await supabase.from("organizers").insert({
-        wallet_address: orgWallet,
-        org_name: formData.orgName,
-        org_description: formData.orgDescription,
-        verified: false,
-      })
-
-      if (orgError) {
-        console.error("[v0] Error creating organizer record:", orgError)
-        throw orgError
-      }
-
-      const { error: memberError } = await supabase.from("organization_members").insert({
-        organization_wallet: orgWallet,
-        user_wallet: user.wallet_address,
-        role: "owner",
-        status: "active",
-        accepted_at: new Date().toISOString(),
-      })
-
-      if (memberError) {
-        console.error("[v0] Error adding member:", memberError)
-        throw memberError
-      }
-
-      console.log("[v0] Organization created successfully on-chain digest:", digest)
-
-      toast({
         title: "Organization Created!",
         description: `${formData.orgName} has been created. Tx: ${digest.slice(0, 10)}…`,
       })
@@ -143,15 +55,14 @@ export function CreateOrganizationDialog({ children, onSuccess }: CreateOrganiza
       setOpen(false)
       setStep("form")
       setFormData({ orgName: "", orgDescription: "" })
-
-      setTimeout(() => {
-        if (onSuccess) {
-          onSuccess()
-        }
-        router.push("/dashboard")
-        router.refresh()
-      }, 500)
-    } catch (error: any) {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("campfire_active_org", orgWallet)
+      }
+      if (onSuccess) {
+        onSuccess()
+      }
+      router.push(`/organizer/${orgWallet}`)
+      router.refresh()    } catch (error: any) {
       console.error("[v0] Error creating organization:", error)
       toast({
         title: "Error",

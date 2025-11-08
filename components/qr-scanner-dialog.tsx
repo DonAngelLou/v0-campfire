@@ -23,6 +23,35 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
   const [simulatedScan, setSimulatedScan] = useState("")
   const videoRef = useRef<HTMLVideoElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraSupported, setCameraSupported] = useState(false)
+  const [cameraSupportMessage, setCameraSupportMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    const isLocalhost =
+      typeof window !== "undefined" &&
+      /^(localhost|127\.0\.0\.1|\[::1\]|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})$/.test(
+        window.location.hostname,
+      )
+
+    if (typeof window !== "undefined" && !window.isSecureContext && !isLocalhost) {
+      setCameraSupported(false)
+      setCameraSupportMessage("Camera access requires HTTPS or running on localhost.")
+      return
+    }
+    if (typeof navigator === "undefined") {
+      setCameraSupported(false)
+      setCameraSupportMessage("Camera access is unavailable in this environment.")
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraSupported(false)
+      setCameraSupportMessage("This browser does not expose camera APIs. Please use a modern browser.")
+      return
+    }
+    setCameraSupported(true)
+    setCameraSupportMessage(null)
+  }, [])
 
   useEffect(() => {
     if (open) {
@@ -30,6 +59,7 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
       setSearchQuery("")
       setSearchResults([])
       setSimulatedScan("")
+      setCameraError(null)
     } else {
       // Clean up camera stream when dialog closes
       if (stream) {
@@ -70,21 +100,43 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
     onOpenChange(false)
   }
 
+  const requestCameraStream = async () => {
+    if (navigator.mediaDevices?.getUserMedia) {
+      return navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+    }
+    const legacyGetUserMedia =
+      (navigator as any).getUserMedia || (navigator as any).webkitGetUserMedia || (navigator as any).mozGetUserMedia
+    if (legacyGetUserMedia) {
+      return new Promise<MediaStream>((resolve, reject) =>
+        legacyGetUserMedia.call(navigator, { video: { facingMode: "environment" } }, resolve, reject),
+      )
+    }
+    throw new Error("Camera APIs are unavailable in this browser or context.")
+  }
+
   const startCamera = async () => {
+    if (!cameraSupported) {
+      setCameraError(cameraSupportMessage || "Camera access is not supported in this browser or context.")
+      return
+    }
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      const mediaStream = await requestCameraStream()
       setStream(mediaStream)
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
       }
+      setCameraError(null)
     } catch (error) {
       console.error("[v0] Camera access error:", error)
+      setCameraError(
+        error instanceof Error ? error.message : "Unable to access camera. Please grant permission or try HTTPS.",
+      )
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ScanLine className="w-5 h-5" />
@@ -115,7 +167,16 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
                 ) : (
                   <div className="text-center space-y-4">
                     <Camera className="w-16 h-16 mx-auto text-muted-foreground" />
-                    <Button onClick={startCamera}>Start Camera</Button>
+                    {cameraError || cameraSupportMessage ? (
+                      <p className="text-sm text-destructive">{cameraError || cameraSupportMessage}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Use a camera-enabled device and grant permission to scan QR codes.
+                      </p>
+                    )}
+                    <Button onClick={startCamera} disabled={!cameraSupported}>
+                      Start Camera
+                    </Button>
                   </div>
                 )}
               </div>

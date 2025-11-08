@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -66,6 +66,7 @@ interface Organizer {
 export default function DashboardPage() {
   const { user } = useWalletAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [events, setEvents] = useState<any[]>([])
   const [applications, setApplications] = useState<Application[]>([])
@@ -76,6 +77,7 @@ export default function DashboardPage() {
   const [userOrgRole, setUserOrgRole] = useState<string>("")
   const [userOrganizations, setUserOrganizations] = useState<string[]>([])
   const [allOrganizations, setAllOrganizations] = useState<any[]>([])
+  const [inventoryOpen, setInventoryOpen] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -166,6 +168,13 @@ export default function DashboardPage() {
       fetchDashboardData()
     }
   }, [user, selectedOrg, userOrganizations])
+
+  useEffect(() => {
+    const tab = searchParams?.get("tab")
+    if (tab === "inventory") {
+      setInventoryOpen(true)
+    }
+  }, [searchParams])
 
   const fetchDashboardData = async () => {
     if (!user || !selectedOrg) return
@@ -311,7 +320,11 @@ export default function DashboardPage() {
                     userRole={userOrgRole}
                   />
                 )}
-                <InventoryDialog organizerWallet={selectedOrg}>
+                <InventoryDialog
+                  organizerWallet={selectedOrg}
+                  open={inventoryOpen}
+                  onOpenChange={setInventoryOpen}
+                >
                   <Button
                     variant="outline"
                     className="gap-2 transition-all duration-300 hover:scale-105 hover:shadow-lg bg-transparent"

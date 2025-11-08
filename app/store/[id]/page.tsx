@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, ShoppingCart, Sparkles, User } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { ProtectedRoute } from "@/components/protected-route"
@@ -62,6 +63,7 @@ function StoreItemContent() {
   const [customDescription, setCustomDescription] = useState("")
   const [quantity, setQuantity] = useState("1")
   const [membershipChecked, setMembershipChecked] = useState(false)
+  const [organizations, setOrganizations] = useState<{ wallet: string; name: string }[]>([])
   const [organizationWallet, setOrganizationWallet] = useState<string | null>(null)
   const [organizationName, setOrganizationName] = useState("")
 
@@ -120,6 +122,12 @@ function StoreItemContent() {
         }
       })
 
+      const orgList = wallets.map((wallet) => ({
+        wallet,
+        name: walletNames[wallet] || wallet,
+      }))
+      setOrganizations(orgList)
+
       const storedOrg =
         typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY) : null
       const preferredWallet =
@@ -130,6 +138,8 @@ function StoreItemContent() {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(ACTIVE_ORG_STORAGE_KEY, preferredWallet)
       }
+
+      setMembershipChecked(true)
 
       setMembershipChecked(true)
     }
@@ -377,16 +387,45 @@ function StoreItemContent() {
                 <CardDescription className="text-base">{item.description}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">
-                    Purchasing as: <span className="font-medium">{organizationName || organizationWallet}</span>
-                  </p>
-                  <span className="text-4xl font-bold text-primary">{totalPrice} SUI</span>
-                  {!isParagon && (
+                <div className="space-y-4">
+                  {organizations.length > 1 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="organization-select">Organization</Label>
+                      <Select
+                        value={organizationWallet ?? undefined}
+                        onValueChange={(value) => {
+                          setOrganizationWallet(value)
+                          const org = organizations.find((o) => o.wallet === value)
+                          setOrganizationName(org?.name || value)
+                          if (typeof window !== "undefined") {
+                            window.localStorage.setItem(ACTIVE_ORG_STORAGE_KEY, value)
+                          }
+                        }}
+                      >
+                        <SelectTrigger id="organization-select">
+                          <SelectValue placeholder="Select organization" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {organizations.map((org) => (
+                            <SelectItem key={org.wallet} value={org.wallet}>
+                              {org.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">
-                    {displayQuantity} × {item.price} SUI each
-                  </p>
-                )}
+                      Purchasing as: <span className="font-medium">{organizationName || organizationWallet}</span>
+                    </p>
+                    <span className="text-4xl font-bold text-primary">{totalPrice} SUI</span>
+                    {!isParagon && (
+                      <p className="text-sm text-muted-foreground">
+                        {displayQuantity} × {item.price} SUI each
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {item.artist_name && (

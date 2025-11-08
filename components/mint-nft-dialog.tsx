@@ -16,10 +16,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Sparkles, Upload, X, ExternalLink } from "lucide-react"
-import { useAuth } from "@/lib/auth-context"
+import { useWalletAuth } from "@/hooks/use-wallet-auth"
 import { useToast } from "@/hooks/use-toast"
 import Image from "next/image"
-import { useCurrentAccount } from "@mysten/dapp-kit"
 import {
   buildMintPaidTransaction,
   useBlockchainTransaction,
@@ -32,19 +31,25 @@ import {
 interface MintNftDialogProps {
   children: React.ReactNode
   onMintSuccess: () => void
+  organizerWallet?: string
 }
 
-const DEFAULT_MINT_PRICE_MIST = Number(process.env.NEXT_PUBLIC_MINT_PRICE_MIST ?? "0") || 0
+const ENV_PRICE_MIST = Number(process.env.NEXT_PUBLIC_MINT_PRICE_MIST ?? "0")
+const ENV_PRICE_SUI = Number(process.env.NEXT_PUBLIC_MINT_PRICE_SUI ?? "0")
+const FALLBACK_PRICE_SUI = 0.7
+const DEFAULT_MINT_PRICE_MIST =
+  ENV_PRICE_MIST > 0
+    ? ENV_PRICE_MIST
+    : Math.round(((ENV_PRICE_SUI > 0 ? ENV_PRICE_SUI : FALLBACK_PRICE_SUI) || FALLBACK_PRICE_SUI) * SUI_DECIMALS)
 const formatMistToSui = (mist: number) =>
   (mist / SUI_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 4 })
 const DEFAULT_RANK_LABEL = "Custom"
 
 const MAX_IMAGE_SIZE_MB = 5
 
-export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
-  const { user } = useAuth()
+export function MintNftDialog({ children, onMintSuccess, organizerWallet }: MintNftDialogProps) {
+  const { user, currentAccount } = useWalletAuth()
   const { toast } = useToast()
-  const currentAccount = useCurrentAccount()
   const { executeTransaction } = useBlockchainTransaction()
   const [open, setOpen] = useState(false)
   const [isMinting, setIsMinting] = useState(false)
@@ -89,6 +94,9 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
   }
 
   const handleMint = async () => {
+    const activeWallet =
+      organizerWallet || user?.wallet_address || user?.sui_wallet_address || currentAccount?.address
+
     if (!currentAccount) {
       toast({
         title: "Wallet Not Connected",
@@ -98,7 +106,16 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
       return
     }
 
-    if (!user || !imageFile || !nftName || !quantity) {
+    if (!activeWallet) {
+      toast({
+        title: "No Organizer Wallet",
+        description: "Select an organization before minting NFTs.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!imageFile || !nftName || !quantity) {
       toast({
         title: "Missing Information",
         description: "Please provide an image, name, and quantity for your NFT.",
@@ -135,7 +152,7 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
       setIsUploading(true)
       const formData = new FormData()
       formData.append("file", imageFile)
-      formData.append("organizerWallet", user.wallet_address)
+      formData.append("organizerWallet", activeWallet)
 
       const uploadResponse = await fetch("/api/upload-nft-image", {
         method: "POST",
@@ -184,17 +201,19 @@ export function MintNftDialog({ children, onMintSuccess }: MintNftDialogProps) {
       setTransactionHash(digest)
       console.log("[v0] Transaction successful:", digest)
 
+      const mintCostSui = (DEFAULT_MINT_PRICE_MIST / SUI_DECIMALS) * quantityNum
+
       const saveResponse = await fetch("/api/blockchain/mint-paid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          organizerWallet: user.wallet_address,
+          organizerWallet: activeWallet,
           transactionHash: digest,
           nftName,
           nftDescription: nftDescription || null,
           imageUrl,
           quantity: quantityNum,
-          mintCost: DEFAULT_MINT_PRICE_MIST * quantityNum,
+          mintCost: mintCostSui,
           mintedTokens,
         }),
       })
