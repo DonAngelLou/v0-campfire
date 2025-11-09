@@ -539,13 +539,20 @@ function EventDetailContent() {
                   <UserValidationCard
                     walletAddress={scannedUserWallet}
                     eventId={eventId}
+                    organizerWallet={event.organization_id || event.organizer_id}
                     onClose={() => setScannedUserWallet(null)}
                   />
                 )}
 
                 <OrganizerChallengeReview eventId={eventId} />
 
-                {event.milestone_enabled && <MilestoneThresholdManager eventId={eventId} onUpdate={fetchEventData} />}
+                {event.milestone_enabled && (
+                  <MilestoneThresholdManager
+                    eventId={eventId}
+                    organizerWallet={event.organization_id || event.organizer_id}
+                    onUpdate={fetchEventData}
+                  />
+                )}
 
                 <Card>
                   <CardHeader>
@@ -554,7 +561,12 @@ function EventDetailContent() {
                         <CardTitle>Event Challenges</CardTitle>
                         <CardDescription>Manage challenges for this event</CardDescription>
                       </div>
-                      <CreateEventChallengeDialog eventId={eventId} user={user} onSuccess={fetchEventData}>
+                      <CreateEventChallengeDialog
+                        eventId={eventId}
+                        user={user}
+                        organizerWallet={event.organization_id || event.organizer_id}
+                        onSuccess={fetchEventData}
+                      >
                         <Button className="gap-2">
                           <Plus className="w-4 h-4" />
                           Add Challenge

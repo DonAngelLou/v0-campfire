@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import type React from "react"
 import { useState, useEffect } from "react"
@@ -24,6 +24,7 @@ interface CreateEventChallengeDialogProps {
   children: React.ReactNode
   eventId: string
   user: any
+  organizerWallet?: string | null
   onSuccess?: () => void
 }
 
@@ -37,20 +38,42 @@ const RANK_CONFIG = {
 
 interface InventoryItem {
   id: string
-  store_item_id: string
+  store_item_id: string | null
   custom_name: string | null
   custom_description: string | null
+  custom_image_url?: string | null
   store_items: {
     id: string
     name: string
     rank: number
     image_url: string
-  }
-  quantity?: number
-  awarded_count?: number
+  } | null
+  quantity?: number | null
+  awarded_count?: number | null
+  awarded?: boolean | null
+  blockchain_tokens?: { status: string }[] | null
 }
 
-export function CreateEventChallengeDialog({ children, eventId, user, onSuccess }: CreateEventChallengeDialogProps) {
+const hasAvailableSupply = (item: InventoryItem) => {
+  if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+    return item.blockchain_tokens.some((token) => token.status === "available")
+  }
+  if (typeof item.quantity === "number" && typeof item.awarded_count === "number") {
+    return item.quantity > item.awarded_count
+  }
+  if (typeof item.awarded === "boolean") {
+    return item.awarded === false
+  }
+  return true
+}
+
+export function CreateEventChallengeDialog({
+  children,
+  eventId,
+  user,
+  organizerWallet,
+  onSuccess,
+}: CreateEventChallengeDialogProps) {
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [availableNFTs, setAvailableNFTs] = useState<InventoryItem[]>([])
@@ -67,60 +90,57 @@ export function CreateEventChallengeDialog({ children, eventId, user, onSuccess 
     special_custom_description: "",
   })
 
+  const resolvedWallet =
+    organizerWallet || user?.sui_wallet_address || user?.wallet_address || user?.organizer_wallet || null
+
   useEffect(() => {
-    if (open && user) {
-      fetchAvailableNFTs()
+    if (open && resolvedWallet) {
+      void fetchAvailableNFTs(resolvedWallet)
+    } else if (open && !resolvedWallet) {
+      setAvailableNFTs([])
     }
-  }, [open, user])
+  }, [open, resolvedWallet])
 
-  const fetchAvailableNFTs = async () => {
-    if (!user) return
+  const fetchAvailableNFTs = async (wallet: string) => {
+    try {
+      let inventoryData: InventoryItem[] = []
 
-    console.log("[v0] 🔍 Fetching available NFTs for user:", user.wallet_address)
-
-    const supabase = createClient()
-
-    const { data, error } = await supabase
-      .from("organizer_inventory")
-      .select("*, store_items(*)")
-      .eq("organizer_wallet", user.wallet_address)
-
-    if (error) {
-      console.error("[v0] ❌ Error fetching available NFTs:", error)
-      return
-    }
-
-    console.log("[v0] 📦 Raw inventory data:", data)
-
-    if (data) {
-      const availableItems = data.filter((item) => {
-        // For old schema: check awarded boolean
-        if (item.awarded === false) return true
-
-        // For new schema: check if quantity > awarded_count
-        if (item.quantity && item.awarded_count !== undefined) {
-          return item.quantity > item.awarded_count
+      if (organizerWallet) {
+        const response = await fetch(`/api/organizations/${wallet}/inventory`)
+        if (!response.ok) {
+          throw new Error("Unable to load organization inventory.")
         }
+        inventoryData = await response.json()
+      } else if (user) {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from("organizer_inventory")
+          .select("*, store_items(*)")
+          .eq("organizer_wallet", wallet)
 
-        return false
-      })
+        if (error) {
+          throw error
+        }
+        inventoryData = (data as InventoryItem[]) || []
+      }
 
-      console.log("[v0] ✅ Available NFTs after filtering:", availableItems)
-      setAvailableNFTs(availableItems)
+      setAvailableNFTs(inventoryData.filter(hasAvailableSupply))
+    } catch (error) {
+      console.error("[v0] Error fetching available NFTs:", error)
+      setAvailableNFTs([])
     }
   }
-
   const handleSubmit = async (e: React.FormEvent) => {
-    console.log("[v0] 🚀 handleSubmit called!")
+    console.log("[v0] ðŸš€ handleSubmit called!")
     e.preventDefault()
 
     if (!user) {
-      console.log("[v0] ❌ No user found, aborting")
+      console.log("[v0] âŒ No user found, aborting")
       return
     }
 
-    console.log("[v0] 📝 Form submitted with data:", formData)
-    console.log("[v0] 📝 Selected NFT:", selectedNFT)
+    console.log("[v0] ðŸ“ Form submitted with data:", formData)
+    console.log("[v0] ðŸ“ Selected NFT:", selectedNFT)
 
     setIsLoading(true)
 
@@ -148,18 +168,18 @@ export function CreateEventChallengeDialog({ children, eventId, user, onSuccess 
       challengeData.special_custom_description = formData.special_custom_description || null
     }
 
-    console.log("[v0] 💾 Inserting challenge data:", challengeData)
+    console.log("[v0] ðŸ’¾ Inserting challenge data:", challengeData)
 
     const { error } = await supabase.from("event_challenges").insert(challengeData)
 
     if (error) {
-      console.error("[v0] ❌ Error creating challenge:", error)
+      console.error("[v0] âŒ Error creating challenge:", error)
       alert(`Error creating challenge: ${error.message}`)
       setIsLoading(false)
       return
     }
 
-    console.log("[v0] ✅ Challenge created successfully")
+    console.log("[v0] âœ… Challenge created successfully")
 
     setIsLoading(false)
     setOpen(false)
@@ -182,6 +202,13 @@ export function CreateEventChallengeDialog({ children, eventId, user, onSuccess 
   }
 
   const selectedNFTDetails = availableNFTs.find((nft) => nft.id === selectedNFT)
+  const selectedStoreItem = selectedNFTDetails?.store_items
+  const selectedDisplayName = selectedNFTDetails
+    ? selectedNFTDetails.custom_name || selectedStoreItem?.name || "Custom NFT"
+    : null
+  const selectedImage =
+    selectedNFTDetails?.custom_image_url || selectedStoreItem?.image_url || "/placeholder.svg"
+  const selectedRank = selectedStoreItem?.rank
 
   const getChallengeTypeIcon = (type: string) => {
     switch (type) {
@@ -416,7 +443,7 @@ export function CreateEventChallengeDialog({ children, eventId, user, onSuccess 
             <Button
               type="submit"
               disabled={isLoading || (formData.challenge_type === "special" && !selectedNFT)}
-              onClick={() => console.log("[v0] 🖱️ Add Challenge button clicked!")}
+              onClick={() => console.log("[v0] ðŸ–±ï¸ Add Challenge button clicked!")}
             >
               {isLoading ? "Creating..." : "Add Challenge"}
             </Button>
@@ -426,3 +453,6 @@ export function CreateEventChallengeDialog({ children, eventId, user, onSuccess 
     </Dialog>
   )
 }
+
+
+

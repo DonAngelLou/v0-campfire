@@ -13,6 +13,7 @@ import { QuickAwardBadgeDialog } from "@/components/quick-award-badge-dialog"
 interface UserValidationCardProps {
   walletAddress: string
   eventId: string
+  organizerWallet?: string | null
   onClose: () => void
 }
 
@@ -42,7 +43,7 @@ interface ProgressData {
   }>
 }
 
-export function UserValidationCard({ walletAddress, eventId, onClose }: UserValidationCardProps) {
+export function UserValidationCard({ walletAddress, eventId, organizerWallet, onClose }: UserValidationCardProps) {
   const [user, setUser] = useState<UserData | null>(null)
   const [registration, setRegistration] = useState<RegistrationData | null>(null)
   const [progress, setProgress] = useState<ProgressData | null>(null)
@@ -264,6 +265,7 @@ export function UserValidationCard({ walletAddress, eventId, onClose }: UserVali
         eventId={eventId}
         userId={user.sui_wallet_address || user.wallet_address}
         userName={user.display_name}
+        organizerWallet={organizerWallet}
         onSuccess={() => {
           setAwardDialogOpen(false)
           fetchUserData()

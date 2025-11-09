@@ -30,6 +30,7 @@ interface MilestoneThreshold {
 
 interface MilestoneThresholdManagerProps {
   eventId: string
+  organizerWallet?: string | null
   onUpdate?: () => void
 }
 
@@ -41,12 +42,43 @@ const RANK_CONFIG = {
   1: { name: "Paragon", color: "#805AD5" },
 }
 
-export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresholdManagerProps) {
+interface InventoryItem {
+  id: string
+  store_item_id: string | null
+  custom_name: string | null
+  custom_description: string | null
+  custom_image_url?: string | null
+  store_items: {
+    id: string
+    name: string
+    rank: number
+    image_url: string
+  } | null
+  quantity?: number | null
+  awarded_count?: number | null
+  awarded?: boolean | null
+  blockchain_tokens?: { status: string }[] | null
+}
+
+const hasAvailableSupply = (item: InventoryItem) => {
+  if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+    return item.blockchain_tokens.some((token) => token.status === "available")
+  }
+  if (typeof item.quantity === "number" && typeof item.awarded_count === "number") {
+    return item.quantity > item.awarded_count
+  }
+  if (typeof item.awarded === "boolean") {
+    return item.awarded === false
+  }
+  return true
+}
+
+export function MilestoneThresholdManager({ eventId, organizerWallet, onUpdate }: MilestoneThresholdManagerProps) {
   const { user } = useAuth()
   const [thresholds, setThresholds] = useState<MilestoneThreshold[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [open, setOpen] = useState(false)
-  const [availableNFTs, setAvailableNFTs] = useState<any[]>([])
+  const [availableNFTs, setAvailableNFTs] = useState<InventoryItem[]>([])
   const [selectedNFT, setSelectedNFT] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
@@ -59,11 +91,16 @@ export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresh
     fetchThresholds()
   }, [eventId])
 
+  const resolvedWallet =
+    organizerWallet || user?.sui_wallet_address || user?.wallet_address || user?.organizer_wallet || null
+
   useEffect(() => {
-    if (open && user) {
-      fetchAvailableNFTs()
+    if (open && resolvedWallet) {
+      void fetchAvailableNFTs(resolvedWallet)
+    } else if (open && !resolvedWallet) {
+      setAvailableNFTs([])
     }
-  }, [open, user])
+  }, [open, resolvedWallet])
 
   const fetchThresholds = async () => {
     const supabase = createClient()
@@ -76,17 +113,34 @@ export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresh
     setThresholds(data || [])
   }
 
-  const fetchAvailableNFTs = async () => {
-    if (!user) return
+  const fetchAvailableNFTs = async (wallet: string) => {
+    try {
+      let inventoryData: InventoryItem[] = []
 
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("organizer_inventory")
-      .select("*, store_items(*)")
-      .eq("organizer_wallet", user.wallet_address)
-      .eq("awarded", false)
+      if (organizerWallet) {
+        const response = await fetch(`/api/organizations/${wallet}/inventory`)
+        if (!response.ok) {
+          throw new Error("Unable to load organization inventory.")
+        }
+        inventoryData = await response.json()
+      } else if (user) {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from("organizer_inventory")
+          .select("*, store_items(*)")
+          .eq("organizer_wallet", wallet)
 
-    setAvailableNFTs(data || [])
+        if (error) {
+          throw error
+        }
+        inventoryData = (data as InventoryItem[]) || []
+      }
+
+      setAvailableNFTs(inventoryData.filter(hasAvailableSupply))
+    } catch (error) {
+      console.error("[v0] Error loading available NFTs:", error)
+      setAvailableNFTs([])
+    }
   }
 
   const handleAddThreshold = async () => {
@@ -123,6 +177,13 @@ export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresh
   }
 
   const selectedNFTDetails = availableNFTs.find((nft) => nft.id === selectedNFT)
+  const selectedStoreItem = selectedNFTDetails?.store_items
+  const selectedDisplayName = selectedNFTDetails
+    ? selectedNFTDetails.custom_name || selectedStoreItem?.name || "Custom NFT"
+    : null
+  const selectedImage =
+    selectedNFTDetails?.custom_image_url || selectedStoreItem?.image_url || "/placeholder.svg"
+  const selectedRank = selectedStoreItem?.rank
 
   return (
     <Card>
@@ -165,27 +226,26 @@ export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresh
 
                 <div className="space-y-2">
                   <Label>Select Prize NFT</Label>
-                  {selectedNFTDetails && (
+                  {selectedNFTDetails && selectedDisplayName && (
                     <div className="p-3 border border-primary rounded-lg bg-primary/5 mb-2">
                       <div className="flex items-center gap-3">
                         <img
-                          src={selectedNFTDetails.store_items.image_url || "/placeholder.svg"}
-                          alt={selectedNFTDetails.store_items.name}
+                          src={selectedImage}
+                          alt={selectedDisplayName}
                           className="w-16 h-16 rounded-md object-cover"
                         />
                         <div className="flex-1">
-                          <p className="font-medium">
-                            {selectedNFTDetails.custom_name || selectedNFTDetails.store_items.name}
-                          </p>
-                          <Badge
-                            variant="outline"
-                            style={{
-                              borderColor:
-                                RANK_CONFIG[selectedNFTDetails.store_items.rank as keyof typeof RANK_CONFIG].color,
-                            }}
-                          >
-                            {RANK_CONFIG[selectedNFTDetails.store_items.rank as keyof typeof RANK_CONFIG].name}
-                          </Badge>
+                          <p className="font-medium">{selectedDisplayName}</p>
+                          {selectedRank ? (
+                            <Badge
+                              variant="outline"
+                              style={{ borderColor: RANK_CONFIG[selectedRank as keyof typeof RANK_CONFIG].color }}
+                            >
+                              {RANK_CONFIG[selectedRank as keyof typeof RANK_CONFIG].name}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">Custom Mint</Badge>
+                          )}
                         </div>
                         <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedNFT(null)}>
                           <X className="w-4 h-4" />
@@ -201,8 +261,11 @@ export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresh
                   ) : (
                     <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto">
                       {availableNFTs.map((nft) => {
-                        const rank = RANK_CONFIG[nft.store_items.rank as keyof typeof RANK_CONFIG]
+                        const storeItem = nft.store_items
+                        const rank = storeItem ? RANK_CONFIG[storeItem.rank as keyof typeof RANK_CONFIG] : null
                         const isSelected = selectedNFT === nft.id
+                        const name = nft.custom_name || storeItem?.name || "Custom NFT"
+                        const image = nft.custom_image_url || storeItem?.image_url || "/placeholder.svg"
                         return (
                           <button
                             key={nft.id}
@@ -212,15 +275,17 @@ export function MilestoneThresholdManager({ eventId, onUpdate }: MilestoneThresh
                               isSelected ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
                             }`}
                           >
-                            <img
-                              src={nft.store_items.image_url || "/placeholder.svg"}
-                              alt={nft.store_items.name}
-                              className="w-full aspect-square object-cover rounded-md mb-2"
-                            />
-                            <p className="font-medium text-xs truncate">{nft.custom_name || nft.store_items.name}</p>
-                            <Badge variant="outline" className="text-xs mt-1" style={{ borderColor: rank.color }}>
-                              {rank.name}
-                            </Badge>
+                            <img src={image} alt={name} className="w-full aspect-square object-cover rounded-md mb-2" />
+                            <p className="font-medium text-xs truncate">{name}</p>
+                            {rank ? (
+                              <Badge variant="outline" className="text-xs mt-1" style={{ borderColor: rank.color }}>
+                                {rank.name}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs mt-1">
+                                Custom Mint
+                              </Badge>
+                            )}
                           </button>
                         )
                       })}

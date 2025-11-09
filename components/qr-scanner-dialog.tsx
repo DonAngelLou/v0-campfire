@@ -68,6 +68,9 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
       stream.getTracks().forEach((track) => track.stop())
       setStream(null)
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
   }, [stream])
 
   useEffect(() => {
@@ -149,14 +152,6 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
     try {
       const mediaStream = await requestCameraStream()
       setStream(mediaStream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
-        try {
-          await videoRef.current.play()
-        } catch {
-          // Some browsers block autoplay; keep stream active so user can interact manually.
-        }
-      }
       setCameraError(null)
     } catch (error) {
       console.error("[v0] Camera access error:", error)
@@ -203,13 +198,28 @@ export function QRScannerDialog({ open, onOpenChange, eventId, onUserScanned }: 
   }, [handleDetectedWallet])
 
   useEffect(() => {
-    if (stream) {
-      animationFrameRef.current = requestAnimationFrame(scanFrame)
-      return () => {
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current)
-          animationFrameRef.current = null
-        }
+    if (!stream || !videoRef.current) {
+      return
+    }
+
+    const video = videoRef.current
+    video.srcObject = stream
+    const playVideo = async () => {
+      try {
+        await video.play()
+      } catch {
+        // Autoplay might be blocked; user interaction will start playback.
+      }
+    }
+    void playVideo()
+
+    animationFrameRef.current = requestAnimationFrame(scanFrame)
+
+    return () => {
+      video.srcObject = null
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
       }
     }
   }, [stream, scanFrame])

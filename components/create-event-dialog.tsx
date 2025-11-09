@@ -91,38 +91,53 @@ export function CreateEventDialog({ children, onSuccess, organizationId }: Creat
     milestone_description: "",
   })
 
+  const resolvedWallet = organizationId || user?.sui_wallet_address || user?.wallet_address || null
+
   useEffect(() => {
-    if (open && user) {
-      fetchAvailableNFTs()
+    if (open && resolvedWallet) {
+      void fetchAvailableNFTs(resolvedWallet)
+    } else if (open) {
+      setAvailableNFTs([])
+      setSelectedTicketNFT(null)
     }
-  }, [open, user, organizationId])
+  }, [open, resolvedWallet])
 
-  const fetchAvailableNFTs = async () => {
-    if (!user) return
+  const fetchAvailableNFTs = async (wallet: string) => {
+    try {
+      let data: InventoryItem[] = []
 
-    const walletToQuery = organizationId || user.wallet_address
-    if (!walletToQuery) return
+      if (organizationId) {
+        const response = await fetch(`/api/organizations/${wallet}/inventory`)
+        if (!response.ok) {
+          throw new Error("Unable to load organization inventory.")
+        }
+        data = await response.json()
+      } else if (user) {
+        const supabase = createClient()
+        const { data: supabaseData, error } = await supabase
+          .from("organizer_inventory")
+          .select("*, store_items(*)")
+          .eq("organizer_wallet", wallet)
+          .order("purchased_at", { ascending: false })
 
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from("organizer_inventory")
-      .select("*, store_items(*)")
-      .eq("organizer_wallet", walletToQuery)
-      .order("purchased_at", { ascending: false })
+        if (error) {
+          throw error
+        }
+        data = (supabaseData as InventoryItem[]) || []
+      }
 
-    if (error) {
-      console.error("[v0] Error fetching available NFTs:", error)
-      return
-    }
-
-    if (data) {
-      const filtered = (data as InventoryItem[]).filter((item) => getAvailableTokenCount(item) > 0)
+      const filtered = data.filter((item) => getAvailableTokenCount(item) > 0)
       setAvailableNFTs(filtered)
+
       if (filtered.length === 0) {
         setSelectedTicketNFT(null)
       } else if (selectedTicketNFT && !filtered.some((nft) => nft.id === selectedTicketNFT)) {
         setSelectedTicketNFT(filtered[0].id)
       }
+    } catch (error) {
+      console.error("[v0] Error fetching available NFTs:", error)
+      setAvailableNFTs([])
+      setSelectedTicketNFT(null)
     }
   }
 

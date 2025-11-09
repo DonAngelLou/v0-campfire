@@ -28,6 +28,7 @@ interface QuickAwardBadgeDialogProps {
   eventId: string
   userId: string
   userName: string
+  organizerWallet?: string | null
   onSuccess: () => void
 }
 
@@ -57,6 +58,7 @@ export function QuickAwardBadgeDialog({
   eventId,
   userId,
   userName,
+  organizerWallet,
   onSuccess,
 }: QuickAwardBadgeDialogProps) {
   const { user } = useWalletAuth()
@@ -70,12 +72,21 @@ export function QuickAwardBadgeDialog({
   const [notes, setNotes] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
+  const resolvedWallet = organizerWallet || user?.sui_wallet_address || user?.wallet_address || null
+
   useEffect(() => {
     if (open && user) {
       fetchChallenges()
-      fetchInventory()
     }
   }, [open, eventId, user])
+
+  useEffect(() => {
+    if (open && resolvedWallet) {
+      fetchInventory(resolvedWallet)
+    } else if (open) {
+      setInventory([])
+    }
+  }, [open, resolvedWallet])
 
   const getAvailableTokenCount = (item: InventoryItem) => {
     if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
@@ -99,45 +110,57 @@ export function QuickAwardBadgeDialog({
     setChallenges(data || [])
   }
 
-  const fetchInventory = async () => {
-    if (!user) return
+  const fetchInventory = async (wallet: string) => {
+    try {
+      let data: any[] = []
+      if (organizerWallet) {
+        const response = await fetch(`/api/organizations/${wallet}/inventory`)
+        if (!response.ok) {
+          throw new Error("Unable to load organization inventory.")
+        }
+        data = await response.json()
+      } else if (user) {
+        const supabase = createClient()
+        const { data: supabaseData, error } = await supabase
+          .from("organizer_inventory")
+          .select(`
+            id,
+            custom_name,
+            custom_description,
+            custom_image_url,
+            is_custom_minted,
+            quantity,
+            awarded_count,
+            blockchain_tokens,
+            store_items(name, image_url, rank)
+          `)
+          .eq("organizer_wallet", wallet)
 
-    const supabase = createClient()
-    const userWallet = user.sui_wallet_address || user.wallet_address
+        if (error) {
+          throw error
+        }
+        data = supabaseData || []
+      }
 
-    const { data } = await supabase
-      .from("organizer_inventory")
-      .select(`
-        id,
-        custom_name,
-        custom_description,
-        custom_image_url,
-        is_custom_minted,
-        quantity,
-        awarded_count,
-        blockchain_tokens,
-        store_items(name, image_url, rank)
-      `)
-      .eq("organizer_wallet", userWallet)
+      const formattedInventory = (data || [])
+        .map((item: any) => ({
+          id: item.id,
+          name: item.custom_name || item.store_items?.name || "Unknown",
+          image_url: item.custom_image_url || item.store_items?.image_url || "/placeholder.svg",
+          rank: item.store_items?.rank ?? null,
+          quantity: item.quantity ?? null,
+          awarded_count: item.awarded_count ?? 0,
+          is_custom_minted: item.is_custom_minted ?? false,
+          custom_image_url: item.custom_image_url ?? null,
+          blockchain_tokens: item.blockchain_tokens ?? [],
+        }))
+        .filter((item: InventoryItem) => getAvailableTokenCount(item) > 0)
 
-    const formattedInventory = (data || [])
-      .map((item: any) => ({
-        id: item.id,
-        name: item.custom_name || item.store_items?.name || "Unknown",
-        image_url: item.custom_image_url || item.store_items?.image_url || "/placeholder.svg",
-        rank: item.store_items?.rank || null,
-        quantity: item.quantity,
-        awarded_count: item.awarded_count,
-        is_custom_minted: item.is_custom_minted || false,
-        custom_image_url: item.custom_image_url,
-        blockchain_tokens: item.blockchain_tokens || [],
-      }))
-      .filter((item: InventoryItem) => {
-        const available = getAvailableTokenCount(item)
-        return available > 0
-      })
-
-    setInventory(formattedInventory)
+      setInventory(formattedInventory)
+    } catch (error) {
+      console.error("[v0] Inventory fetch error:", error)
+      setInventory([])
+    }
   }
 
   const handleSubmit = async () => {
@@ -147,6 +170,15 @@ export function QuickAwardBadgeDialog({
       toast({
         title: "Wallet Not Connected",
         description: "Please connect your SUI wallet to award badges.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!resolvedWallet) {
+      toast({
+        title: "No Organizer Wallet",
+        description: "Select an organization before awarding NFTs.",
         variant: "destructive",
       })
       return
@@ -187,14 +219,18 @@ export function QuickAwardBadgeDialog({
       }
 
 
+      const numericChallengeId = Number(selectedChallenge)
+      const parsedChallengeId = Number.isNaN(numericChallengeId) ? null : numericChallengeId
+      const awardedByWallet = organizerWallet || user.sui_wallet_address || user.wallet_address
+
       const awardResponse = await fetch("/api/blockchain/award", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inventoryId: selectedBadge,
           recipientWallet: userId,
-          awardedBy: user.wallet_address,
-          challengeId: Number.parseInt(selectedChallenge),
+          awardedBy: awardedByWallet,
+          challengeId: parsedChallengeId,
           transactionHash: digest,
           blockchainObjectId: availableToken.objectId,
           eventId,
