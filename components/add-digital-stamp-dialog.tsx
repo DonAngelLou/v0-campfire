@@ -78,6 +78,7 @@ export function AddDigitalStampDialog({
       .select("challenge_id")
       .eq("user_id", userId)
       .eq("event_id", eventId)
+      .eq("status", "approved")
 
     if (data) {
       setUserCompletions(new Set(data.map((c) => c.challenge_id)))
@@ -97,8 +98,8 @@ export function AddDigitalStampDialog({
       challenge_id: selectedChallenge,
       user_id: userId,
       approved_by: approverWallet,
-      status: "approved",
-      completed_at: new Date().toISOString(),
+      status: "pending",
+      completed_at: null,
       notes: notes || null,
     })
 
@@ -183,7 +184,7 @@ export function AddDigitalStampDialog({
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={!selectedChallenge || isLoading}>
-            {isLoading ? "Adding..." : "Add Stamp"}
+            {isLoading ? "Submitting..." : "Submit for Approval"}
           </Button>
         </DialogFooter>
       </DialogContent>

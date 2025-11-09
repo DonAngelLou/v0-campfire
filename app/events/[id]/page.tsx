@@ -5,7 +5,7 @@ import { notFound, useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, MapPin, Users, Ticket, Trophy, Target, Star, Plus, Flame, ScanLine } from "lucide-react"
+import { Calendar, MapPin, Users, Ticket, Trophy, Target, Star, Plus, Flame, ScanLine, Shield } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { ProtectedRoute } from "@/components/protected-route"
 import { useWalletAuth } from "@/hooks/use-wallet-auth"
@@ -18,6 +18,7 @@ import { ManageEventTeamDialog } from "@/components/manage-event-team-dialog"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { QRScannerDialog } from "@/components/qr-scanner-dialog"
 import { UserValidationCard } from "@/components/user-validation-card"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 interface Event {
   id: string
@@ -58,6 +59,32 @@ interface EventChallenge {
   status: string
 }
 
+interface EventParticipant {
+  id: string
+  user_id: string
+  status: "registered" | "cancelled"
+  registration_date: string
+  payment_status: "pending" | "completed" | "refunded"
+  payment_amount: number
+  user?: {
+    wallet_address: string
+    display_name: string
+    avatar_url: string | null
+  } | null
+}
+
+interface EventTeamMember {
+  id: string
+  user_id: string
+  role: "admin" | "staff" | "facilitator"
+  added_by: string
+  users?: {
+    wallet_address: string
+    display_name: string
+    avatar_url: string | null
+  } | null
+}
+
 export default function EventDetailPage() {
   return (
     <ProtectedRoute>
@@ -81,6 +108,9 @@ function EventDetailContent() {
   const [userTeamRole, setUserTeamRole] = useState<"admin" | "staff" | "facilitator" | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scannedUserWallet, setScannedUserWallet] = useState<string | null>(null)
+  const [participants, setParticipants] = useState<EventParticipant[]>([])
+  const [teamMembers, setTeamMembers] = useState<EventTeamMember[]>([])
+  const [isOrganizerDataLoading, setIsOrganizerDataLoading] = useState(false)
 
   useEffect(() => {
     if (eventId) {
@@ -99,6 +129,15 @@ function EventDetailContent() {
       fetchUserData()
     }
   }, [event, user, isAuthLoading])
+
+  useEffect(() => {
+    if (event && userTeamRole) {
+      fetchOrganizerData()
+    } else {
+      setParticipants([])
+      setTeamMembers([])
+    }
+  }, [event, userTeamRole])
 
   const fetchEventData = async () => {
     const supabase = createClient()
@@ -199,6 +238,64 @@ function EventDetailContent() {
 
     if (submissionsData) {
       setUserSubmissions(new Set(submissionsData.map((s) => s.challenge_id)))
+    }
+  }
+
+  const fetchOrganizerData = async () => {
+    if (!event) return
+    setIsOrganizerDataLoading(true)
+    const supabase = createClient()
+
+    try {
+      const [registrationsResult, teamResult] = await Promise.all([
+        supabase
+          .from("event_registrations")
+          .select("*")
+          .eq("event_id", event.id)
+          .eq("status", "registered")
+          .order("registration_date", { ascending: false }),
+        supabase.from("event_team_members").select("*").eq("event_id", event.id).order("role", { ascending: true }),
+      ])
+
+      const participantRows = registrationsResult.data || []
+      const teamRows = teamResult.data || []
+      const walletIds = Array.from(
+        new Set([
+          ...participantRows.map((row: any) => row.user_id),
+          ...teamRows.map((row: any) => row.user_id),
+        ].filter(Boolean)),
+      )
+
+      let userMap: Record<string, { wallet_address: string; display_name: string; avatar_url: string | null }> = {}
+      if (walletIds.length > 0) {
+        const { data: userRows } = await supabase
+          .from("users")
+          .select("wallet_address, display_name, avatar_url")
+          .in("wallet_address", walletIds)
+
+        if (userRows) {
+          userRows.forEach((row) => {
+            userMap[row.wallet_address] = row
+          })
+        }
+      }
+
+      setParticipants(
+        participantRows.map((row: any) => ({
+          ...row,
+          user: userMap[row.user_id] || null,
+        })),
+      )
+      setTeamMembers(
+        teamRows.map((row: any) => ({
+          ...row,
+          users: userMap[row.user_id] || null,
+        })),
+      )
+    } catch (error) {
+      console.error("[v0] Organizer data fetch error:", error)
+    } finally {
+      setIsOrganizerDataLoading(false)
     }
   }
 
@@ -560,6 +657,146 @@ function EventDetailContent() {
                         )}
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Users className="w-4 h-4" />
+                          Participants
+                        </CardTitle>
+                        <CardDescription>
+                          {participants.length === 0
+                            ? "No participants have registered yet."
+                            : `${participants.length} participant${participants.length === 1 ? "" : "s"} registered`}
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="max-h-72 pr-4">
+                      {isOrganizerDataLoading ? (
+                        <div className="flex items-center justify-center py-6">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        </div>
+                      ) : participants.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Users className="w-10 h-10 mx-auto mb-2 opacity-60" />
+                          <p className="text-sm">No participants yet.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {participants.map((participant) => (
+                            <div
+                              key={participant.id}
+                              className="p-3 border border-border rounded-lg bg-muted/40 flex items-center justify-between"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                                  {participant.user?.avatar_url ? (
+                                    <img
+                                      src={participant.user.avatar_url}
+                                      alt={participant.user.display_name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="font-semibold text-primary">
+                                      {participant.user?.display_name?.[0]?.toUpperCase() || "?"}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    {participant.user?.display_name || participant.user_id}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground font-mono truncate">
+                                    {participant.user_id}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Registered {new Date(participant.registration_date).toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                              <Badge
+                                variant={participant.payment_status === "completed" ? "default" : "secondary"}
+                                className="text-xs whitespace-nowrap"
+                              >
+                                {participant.payment_status}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Shield className="w-4 h-4" />
+                          Event Team
+                        </CardTitle>
+                        <CardDescription>
+                          {teamMembers.length === 0
+                            ? "No team members assigned."
+                            : `${teamMembers.length} member${teamMembers.length === 1 ? "" : "s"} supporting this event`}
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="max-h-64 pr-4">
+                      {isOrganizerDataLoading ? (
+                        <div className="flex items-center justify-center py-6">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        </div>
+                      ) : teamMembers.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Shield className="w-10 h-10 mx-auto mb-2 opacity-60" />
+                          <p className="text-sm">No team members yet.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {teamMembers.map((member) => (
+                            <div
+                              key={member.id}
+                              className="p-3 border border-border rounded-lg bg-muted/40 flex items-center justify-between"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                                  {member.users?.avatar_url ? (
+                                    <img
+                                      src={member.users.avatar_url}
+                                      alt={member.users.display_name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="font-semibold text-primary">
+                                      {member.users?.display_name?.[0]?.toUpperCase() || "?"}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    {member.users?.display_name || member.user_id}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground font-mono truncate">
+                                    {member.user_id}
+                                  </p>
+                                </div>
+                              </div>
+                              <Badge className="text-xs capitalize">{member.role}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </ScrollArea>
                   </CardContent>
                 </Card>
               </div>

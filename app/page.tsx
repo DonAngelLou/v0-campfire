@@ -9,7 +9,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border sticky top-0 bg-background/80 backdrop-blur-sm z-50 transition-all duration-300">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4 flex-wrap">
           <Link href="/" className="flex items-center gap-2 group">
             <Flame className="h-6 w-6 text-primary transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
             <div>
@@ -17,7 +17,7 @@ export default function LandingPage() {
               <p className="text-xs text-muted-foreground">by Group 5 Scouts</p>
             </div>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-wrap">
             <Link href="/login">
               <Button size="lg" className="transition-all duration-300 hover:scale-105 hover:shadow-lg">
                 Go to App
@@ -29,20 +29,20 @@ export default function LandingPage() {
       </header>
 
       {/* Hero Section */}
-      <section className="container mx-auto px-4 py-20 text-center animate-fade-in">
+      <section className="container mx-auto px-4 py-16 sm:py-20 text-center animate-fade-in">
         <Badge variant="secondary" className="mb-4 animate-slide-up">
           Digital Achievement Platform
         </Badge>
-        <h2 className="text-5xl font-bold text-foreground mb-6 text-balance animate-slide-up animation-delay-100">
+        <h2 className="text-4xl sm:text-5xl font-bold text-foreground mb-6 text-balance animate-slide-up animation-delay-100">
           Recognize Achievement,
           <br />
           Build Community
         </h2>
-        <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto text-pretty animate-slide-up animation-delay-200">
+        <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto text-pretty animate-slide-up animation-delay-200">
           Campfire is a digital badge platform that helps organizations recognize skills, track achievements, and build
           meaningful connections through verifiable credentials.
         </p>
-        <div className="flex items-center justify-center gap-4 animate-slide-up animation-delay-300">
+        <div className="flex items-center justify-center gap-4 flex-wrap animate-slide-up animation-delay-300">
           <Link href="/login">
             <Button size="lg" className="transition-all duration-300 hover:scale-105 hover:shadow-lg">
               Get Started

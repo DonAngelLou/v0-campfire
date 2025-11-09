@@ -51,22 +51,23 @@ export function ParticipantProgressCard({ eventId }: ParticipantProgressCardProp
 
     const supabase = createClient()
 
-    // Fetch all challenge completions for this event
+    // Fetch only approved challenge completions for this event
     const { data: completionsData } = await supabase
       .from("challenge_completions")
       .select("*, event_challenges(name, challenge_type, milestone_points, event_id)")
       .eq("user_id", user.wallet_address)
       .eq("event_challenges.event_id", eventId)
+      .eq("status", "approved")
 
     const filteredCompletions = (completionsData || []).filter((c) => c.event_challenges !== null)
     setCompletions(filteredCompletions)
 
-    // Calculate milestone progress
-    const approvedMilestones = filteredCompletions.filter(
-      (c) => c.event_challenges.challenge_type === "milestone" && c.status === "approved",
+    // Calculate milestone progress only from approved entries
+    const milestoneCompletions = filteredCompletions.filter(
+      (c) => c.event_challenges.challenge_type === "milestone",
     )
 
-    const pointsEarned = approvedMilestones.reduce((sum, c) => sum + (c.event_challenges.milestone_points || 0), 0)
+    const pointsEarned = milestoneCompletions.reduce((sum, c) => sum + (c.event_challenges.milestone_points || 0), 0)
 
     // Get total milestone challenges
     const { count: totalMilestones } = await supabase
@@ -88,7 +89,7 @@ export function ParticipantProgressCard({ eventId }: ParticipantProgressCardProp
 
     setProgress({
       total_challenges: totalMilestones || 0,
-      completed_challenges: approvedMilestones.length,
+      completed_challenges: milestoneCompletions.length,
       points_earned: pointsEarned,
       next_threshold: nextThreshold || null,
     })

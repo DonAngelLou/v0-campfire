@@ -102,6 +102,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to create award", details: awardError.message }, { status: 500 })
     }
 
+    const { error: holdingError } = await supabase.from("user_nft_holdings").insert({
+      award_id: award.id,
+      blockchain_object_id: blockchainObjectId,
+      current_owner: recipientWallet,
+      metadata: {
+        inventory_id: inventoryId,
+        event_id: eventId ?? null,
+      },
+    })
+
+    if (holdingError) {
+      console.error("[v0] Holding creation error:", holdingError)
+    }
+
     return NextResponse.json({
       success: true,
       awardId: award.id,

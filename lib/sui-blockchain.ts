@@ -14,6 +14,9 @@ const textEncoder = new TextEncoder()
 
 export const SUI_DECIMALS = 1_000_000_000
 
+export const suiToMist = (amount: number) => Math.max(Math.round((amount || 0) * SUI_DECIMALS), 0)
+export const mistToSui = (amount: number) => (amount || 0) / SUI_DECIMALS
+
 const stringToBytes = (value: string) => Array.from(textEncoder.encode(value))
 
 const ensureSuiAddress = (value: string) => {
