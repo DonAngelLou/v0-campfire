@@ -21,9 +21,11 @@ import { useAuth } from "@/lib/auth-context"
 import { Badge } from "@/components/ui/badge"
 import { X, Package } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import type { BlockchainToken } from "@/types/blockchain"
 
 interface CreateChallengeDialogProps {
   children: React.ReactNode
+  organizerWallet?: string | null
   onSuccess?: () => void
 }
 
@@ -40,15 +42,30 @@ interface InventoryItem {
   store_item_id: number
   custom_name: string | null
   custom_description: string | null
+  custom_image_url?: string | null
   purchased_at: string
+  is_custom_minted?: boolean | null
+  quantity?: number | null
+  awarded_count?: number | null
+  blockchain_tokens?: BlockchainToken[] | null
   store_items: {
     name: string
     rank: number
     image_url: string
-  }
+  } | null
 }
 
-export function CreateChallengeDialog({ children, onSuccess }: CreateChallengeDialogProps) {
+const hasAvailableSupply = (item: InventoryItem) => {
+  if (Array.isArray(item.blockchain_tokens) && item.blockchain_tokens.length > 0) {
+    return item.blockchain_tokens.some((token) => token.status === "available")
+  }
+  if (typeof item.quantity === "number" && typeof item.awarded_count === "number") {
+    return item.quantity > item.awarded_count
+  }
+  return !(item as any).awarded
+}
+
+export function CreateChallengeDialog({ children, organizerWallet, onSuccess }: CreateChallengeDialogProps) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -62,35 +79,47 @@ export function CreateChallengeDialog({ children, onSuccess }: CreateChallengeDi
     status: "open" as "open" | "closed" | "completed",
   })
 
+  const resolvedWallet = organizerWallet || user?.sui_wallet_address || user?.wallet_address || null
+
   useEffect(() => {
-    if (open && user) {
-      fetchAvailableNFTs()
+    if (open && resolvedWallet) {
+      void fetchAvailableNFTs(resolvedWallet)
+    } else if (open) {
+      setAvailableNFTs([])
+      setSelectedNFTs([])
     }
-  }, [open, user])
+  }, [open, resolvedWallet])
 
-  const fetchAvailableNFTs = async () => {
-    if (!user) return
+  const fetchAvailableNFTs = async (wallet: string) => {
+    try {
+      let inventoryData: InventoryItem[] = []
 
-    const supabase = createClient()
+      if (organizerWallet) {
+        const response = await fetch(`/api/organizations/${wallet}/inventory`)
+        if (!response.ok) {
+          throw new Error("Unable to load organization inventory.")
+        }
+        inventoryData = await response.json()
+      } else if (user) {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from("organizer_inventory")
+          .select("*, store_items(*)")
+          .eq("organizer_wallet", wallet)
 
-    console.log("[v0] Fetching available NFTs for user:", user.wallet_address)
+        if (error) {
+          throw error
+        }
+        inventoryData = (data as InventoryItem[]) || []
+      }
 
-    const { data, error } = await supabase
-      .from("organizer_inventory")
-      .select("*, store_items(*)")
-      .eq("organizer_wallet", user.wallet_address)
-      .eq("awarded", false)
-
-    console.log("[v0] Available NFTs query result:", { data, error })
-
-    if (error) {
+      const filtered = inventoryData.filter(hasAvailableSupply)
+      setAvailableNFTs(filtered)
+      setSelectedNFTs((prev) => prev.filter((id) => filtered.some((item) => item.id === id)))
+    } catch (error) {
       console.error("[v0] Error fetching available NFTs:", error)
-      return
-    }
-
-    if (data) {
-      console.log("[v0] Setting available NFTs:", data.length, "items")
-      setAvailableNFTs(data)
+      setAvailableNFTs([])
+      setSelectedNFTs([])
     }
   }
 
